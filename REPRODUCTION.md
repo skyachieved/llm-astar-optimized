@@ -22,12 +22,21 @@ The API key comes from `OPENAI_API_KEY` (any value for vLLM). The endpoint comes
 Every LLM response is cached in `.cache/llm/`, keyed by model, base URL, messages and sampling settings.
 Reruns, and the LLM-only runs that reuse the LLM-A* prompts, therefore make no new requests.
 
-## What this reproduction added
+## What this reproduction changed, and why
 
 Everything the runs produce is in `outputs/`; nothing is written into the original repository's folders. `logs/` and `.cache/` are local only (git-ignored). `git diff 9414ed8` shows every change against the original repository; 9414ed8 is its last commit.
 
-- **New files:** `REPRODUCTION.md`, `tests/test_astar.py`, and in `llmastar/`: `run.py`, `summary.py`, `scale.py`, `benchmark.py`, `outputs.py`, `figures/`, `model/cache.py`, `pather/dw_a_star/`, `waypoints/`.
-- **Changed original files:** `README.md` (rewritten for this repository), `llmastar/model/{__init__,chatgpt,llama3}.py` (openai>=1.x client with disk cache; lazy Llama import), `llmastar/pather/a_star/a_star.py` and `llm_a_star/llm_a_star.py` (headless, no query mutation, precomputed waypoints; metrics unchanged), `llmastar/pather/llm_a_star/prompt.py` (template → chat messages helper), `llmastar/pather/__init__.py`, `llmastar/env/search/plotting.py` (headless-safe), `requirements.txt`, `.gitignore`, `.github/workflows/test.yml`.
+The original repository has only single-query searches. It has no runner over the 1,000 queries, no Table 1 averages, no Dynamic WA*, no LLM-only check, no scaling experiment and no figure code, so most of the changes fill those gaps. Paths below are under `llmastar/` unless shown otherwise.
+
+| Change | Files | Why |
+|---|---|---|
+| Llama-3-8B-Instruct through vLLM | `model/chatgpt.py`, `model/__init__.py`, `pather/llm_a_star/prompt.py`, `requirements.txt` | The old client used the 2023 OpenAI library; the new one talks to any OpenAI-compatible server, here vLLM. The paper's Llama 3 prompt is sent as chat messages with the same content. The package no longer loads torch on import, so the experiment env needs none. |
+| Experiment code | `run.py`, `benchmark.py`, `summary.py`, `scale.py`, `outputs.py`, `figures/` | The authors did not publish theirs. These run a method over all queries, compute the Table 1 averages, run the Fig. 3 scaling experiment and draw Figs. 1–3. |
+| Dynamic WA* | `pather/dw_a_star/` | Table 1 has a Dynamic WA* row, but the original code has no implementation. The paper does not say which reading it used, so we ran five and kept the one that matches (deviation 4). |
+| Fixes to the original searches | `pather/a_star/a_star.py`, `pather/llm_a_star/llm_a_star.py`, `env/search/plotting.py` | Every search opened a plot window, which blocks on a server without a display. LLM-A* crashed when an answer had no list. Searches also changed the caller's query. The metrics are unchanged: `tests/test_astar.py` checks the paper's 859 / 802 / 53.46. |
+| Swappable waypoint step | `waypoints/`, `pather/llm_a_star/llm_a_star.py` | LLM-A* now takes a list of waypoints instead of calling the LLM itself, so a new waypoint method can replace the prompt without touching the search. It also lets all LLM calls run in parallel before the searches. |
+| Extras, not needed for the results | `model/cache.py`, `tests/test_astar.py`, `.github/workflows/test.yml`, `model/llama3.py`, `pather/a_star/a_star.py` | The cache stores every LLM answer, so reruns cost nothing. The tests and CI (now Python 3.11 with pytest) check the metrics. `llama3.py` no longer hardcodes GPU `cuda:3`. A* keeps a set of closed states for faster lookups, with the same result. |
+| Docs | `README.md`, `REPRODUCTION.md`, `.gitignore` | README rewritten for this repository; this file; the LLM cache, logs and raw LLM output are git-ignored. |
 
 ## Output layout
 

@@ -139,7 +139,7 @@ llmastar/model/        OpenAI-compatible chat client with an on-disk response ca
 dataset/               the benchmark: 100 maps x 10 start/goal pairs
 outputs/               our results: per-query CSVs, summary.md, search traces, figures
 tests/                 unit tests (pytest)
-REPRODUCTION.md        setup details, deviations from the paper, and why numbers differ
+REPRODUCTION.md        what we changed in the original code and why, deviations from the paper, why numbers differ
 ```
 
 ## Credit
