@@ -1,3 +1,5 @@
+import re
+
 sysprompt_parse = """You are a code generation assistant. Your task is to convert natural language descriptions of pathfinding problems into structured JSON objects that can be used as input for a pathfinding algorithm. The input will describe start and goal points, horizontal and vertical barriers, and the boundaries of the environment. 
 
 For each input, extract the following information and format it into a JSON object:
@@ -384,4 +386,21 @@ Vertical Barriers: {vertical_barriers}
 
 gpt_prompt = {'standard': standard_gpt,'cot': cot_gpt, 'repe': repe_gpt}
 llama_prompt = {'standard': standard_llama, 'cot': cot_llama, 'repe': repe_llama}
+
+_LLAMA_TURN = re.compile(r"<\|start_header_id\|>(\w+)<\|end_header_id\|>(.*?)(?=<\|start_header_id\|>|\Z)", re.S)
+
+
+def llama_template_to_messages(template, **fields):
+    """Turn one of the raw Llama-3 templates above into chat messages for a Chat Completions endpoint.
+
+    The server re-applies the model's own chat template, so the turns sent are exactly the paper's prompt;
+    only whitespace around the special tokens is normalized. The trailing empty assistant header (the
+    generation prompt) is dropped.
+    """
+    text = template.format(**fields)
+    messages = [{"role": role, "content": body.replace("<|eot_id|>", "").strip()}
+                for role, body in _LLAMA_TURN.findall(text)]
+    if messages and messages[-1]["role"] == "assistant" and not messages[-1]["content"]:
+        messages.pop()
+    return messages
 

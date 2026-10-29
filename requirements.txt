@@ -1,9 +1,6 @@
-setuptools~=68.2.2
-openai==0.27.2
-inquirer~=3.2.4
-shapely
-matplotlib
+openai>=1.40
+shapely>=2.0
+matplotlib>=3.7
 numpy
-transformers
-torch
-shapely
+inquirer~=3.2.4
+pytest>=7

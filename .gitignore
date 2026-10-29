@@ -130,3 +130,11 @@ config.json
 
 outcome/*
 main.py
+
+# Reproduction: LLM response cache, raw LLM logs, per-query plots, run logs
+.cache/
+outputs/*/raw/
+outputs/*/plots/
+logs/
+# Local helper scripts for our GPU server (not published; README.md has the plain commands)
+scripts/

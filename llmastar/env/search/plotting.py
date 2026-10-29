@@ -1,15 +1,22 @@
 import os
 import sys
+import matplotlib
+
+# Headless server (no display): render to files only.
+if sys.platform.startswith("linux") and not any(os.environ.get(v) for v in ("DISPLAY", "WAYLAND_DISPLAY", "MPLBACKEND")):
+    matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 
 from .env import *
 
 
 class Plotting:
-    def __init__(self, xI, xG, env):
+    def __init__(self, xI, xG, env, animate=False):
         self.xI, self.xG = xI, xG
         self.env = env
         self.obs = self.env.obs_map()
+        self.animate = animate  # step-by-step drawing with plt.pause; needs an interactive backend
 
     def update_obs(self, obs):
         self.obs = obs
@@ -28,11 +35,12 @@ class Plotting:
         self.plot_visited(visited)
         if path:
             self.plot_path(path)
-        plt.savefig(filepath)
+        if filepath:
+            plt.savefig(filepath)
         if show:
             plt.show()
         plt.close()
-        
+
 
     def animation_lrta(self, path, visited, name):
         self.plot_grid(name)
@@ -78,11 +86,12 @@ class Plotting:
         plt.axis("equal")
 
     def plot_visited(self, visited, cl='gray'):
-        if self.xI in visited:
-            visited.remove(self.xI)
+        # Copy, so the caller's CLOSED list (used for metrics and traces) is left intact.
+        visited = [x for x in visited if x != self.xI and x != self.xG]
 
-        if self.xG in visited:
-            visited.remove(self.xG)
+        if not self.animate:
+            plt.plot([x[0] for x in visited], [x[1] for x in visited], color=cl, marker='o', linestyle='none')
+            return
 
         count = 0
 
@@ -117,7 +126,8 @@ class Plotting:
         plt.plot(self.xI[0], self.xI[1], "bs")
         plt.plot(self.xG[0], self.xG[1], "gs")
 
-        plt.pause(0.01)
+        if self.animate:
+            plt.pause(0.01)
 
     def plot_visited_bi(self, v_fore, v_back):
         if self.xI in v_fore:

@@ -1,44 +1,57 @@
+import ast
+import copy
 import json
 import math
 import heapq
 
 from llmastar.env.search import env, plotting
-from llmastar.model import ChatGPT, Llama3
-from llmastar.utils import is_lines_collision, list_parse
-from .prompt import *
+from llmastar.utils import is_lines_collision
+from .prompt import sysprompt_parse, example_parse
 
 class LLMAStar:
-    """LLM-A* algorithm with cost + heuristics as the priority."""
-    
-    GPT_METHOD = "PARSE"
-    GPT_LLMASTAR_METHOD = "LLM-A*"
+    """LLM-A* algorithm with cost + heuristics as the priority.
 
-    def __init__(self, llm='gpt', prompt='standard'):
-        self.llm = llm
-        if self.llm == 'gpt':
-            self.parser = ChatGPT(method=self.GPT_METHOD, sysprompt=sysprompt_parse, example=example_parse)
-            self.model = ChatGPT(method=self.GPT_LLMASTAR_METHOD, sysprompt="", example=None)
-        elif self.llm == 'llama':
-            self.model = Llama3()
-        else:
-            raise ValueError("Invalid LLM model. Choose 'gpt' or 'llama'.")
-        
+    The search only consumes a waypoint list. Where it comes from is pluggable:
+      - pass `waypoints` to `searching` (the runner does this after batching the LLM calls), or
+      - give `generator`: any object with `generate(query) -> WaypointResult` (see llmastar.waypoints), or
+      - give `llm` (a chat client such as ChatGPT(model, base_url), or 'gpt' / 'llama' for the defaults)
+        and `prompt` to use the paper's prompting.
+    """
+
+    name = "LLM-A*"
+
+    def __init__(self, llm=None, prompt='standard', generator=None):
         assert prompt in ['standard', 'cot', 'repe'], "Invalid prompt type. Choose 'standard', 'cot', or 'repe'."
         self.prompt = prompt
+        if llm == 'gpt':
+            from llmastar.model import ChatGPT
+            llm = ChatGPT(model="gpt-3.5-turbo")
+        elif llm == 'llama':
+            from llmastar.model import Llama3
+            llm = Llama3()
+        elif isinstance(llm, str):
+            raise ValueError("Invalid LLM model. Pass a chat client, 'gpt' or 'llama'.")
+        self.llm = llm
+        if generator is None and llm is not None:
+            from llmastar.waypoints import PromptWaypointGenerator
+            generator = PromptWaypointGenerator(llm, prompt)
+        self.generator = generator
 
     def _parse_query(self, query):
-        """Parse input query using the specified LLM model."""
+        """Parse a natural-language query into the dict format using the LLM."""
         if isinstance(query, str):
-            if self.llm == 'gpt':
-                response = self.parser.chat(query)
-                print(response)
+            if self.llm is None:
+                raise ValueError("A natural-language query needs an `llm` to parse it.")
+            messages = [{"role": "system", "content": sysprompt_parse}]
+            for example in example_parse.values():
+                user, assistant = example.split("\n", 1)
+                messages += [{"role": "user", "content": user}, {"role": "assistant", "content": assistant}]
+            messages.append({"role": "user", "content": query})
+            response = self.llm.chat(messages).strip()
+            try:
                 return json.loads(response)
-            elif self.llm == 'llama':
-                response = self.model.ask(parse_llama.format(query=query))
-                print(response)
-                return json.loads(response)
-            else:
-                raise ValueError("Invalid LLM model.")
+            except json.JSONDecodeError:
+                return ast.literal_eval(response)
         return query
 
     def _initialize_parameters(self, input_data):
@@ -50,7 +63,6 @@ class LLMAStar:
         self.range_x = input_data['range_x']
         self.range_y = input_data['range_y']
         self.Env = env.Env(self.range_x[1], self.range_y[1], self.horizontal_barriers, self.vertical_barriers)
-        self.plot = plotting.Plotting(self.s_start, self.s_goal, self.Env)
         # Adjust range limits
         self.range_x[1] -= 1
         self.range_y[1] -= 1
@@ -58,43 +70,20 @@ class LLMAStar:
         self.obs = self.Env.obs
         self.OPEN = []
         self.CLOSED = []
+        self.closed_set = set()  # same states as CLOSED, for O(1) membership tests
         self.PARENT = dict()
         self.g = dict()
 
-    def _initialize_llm_paths(self):
-        """Initialize paths using LLM suggestions."""
-        start, goal = list(self.s_start), list(self.s_goal)
-        query = self._generate_llm_query(start, goal)
-
-        if self.llm == 'gpt':
-            response = self.model.ask(prompt=query, max_tokens=1000)
-        elif self.llm == 'llama':
-            response = self.model.ask(prompt=query)
-        else:
-            raise ValueError("Invalid LLM model.")
-
-        nodes = list_parse(response)
-        self.target_list = self._filter_valid_nodes(nodes)
+    def _initialize_targets(self, waypoints):
+        """Build the TARGET list from proposed waypoints: drop invalid nodes, ensure start and goal."""
+        self.target_list = self._filter_valid_nodes(waypoints)
 
         if not self.target_list or self.target_list[0] != self.s_start:
             self.target_list.insert(0, self.s_start)
         if not self.target_list or self.target_list[-1] != self.s_goal:
             self.target_list.append(self.s_goal)
-        print(self.target_list)
         self.i = 1
         self.s_target = self.target_list[1]
-        print(self.target_list[0], self.s_target)
-
-    def _generate_llm_query(self, start, goal):
-        """Generate the query for the LLM."""
-        if self.llm == 'gpt':
-            return gpt_prompt[self.prompt].format(start=start, goal=goal,
-                                horizontal_barriers=self.horizontal_barriers,
-                                vertical_barriers=self.vertical_barriers)
-        elif self.llm == 'llama':
-            return llama_prompt[self.prompt].format(start=start, goal=goal,
-                                    horizontal_barriers=self.horizontal_barriers,
-                                    vertical_barriers=self.vertical_barriers)
 
     def _filter_valid_nodes(self, nodes):
         """Filter out invalid nodes based on environment constraints."""
@@ -103,56 +92,67 @@ class LLMAStar:
                 and self.range_x[0] + 1 < node[0] < self.range_x[1] - 1
                 and self.range_y[0] + 1 < node[1] < self.range_y[1] - 1]
 
-    def searching(self, query, filepath='temp.png'):
+    def searching(self, query, filepath=None, waypoints=None):
         """
-        A* searching algorithm.
-        :return: Path and search metrics.
+        A* searching algorithm guided by waypoints.
+        :param waypoints: [(x, y), ...] proposed waypoints; if None, they are generated with `self.generator`
+        :param filepath: if given, save a plot of the search there
+        :return: metrics (same definitions as A*), valid, path, visited order, and the TARGET list used
         """
         self.filepath = filepath
-        print(query)
-        input_data = self._parse_query(query)
+        input_data = copy.deepcopy(self._parse_query(query))
+        if waypoints is None:
+            if self.generator is None:
+                raise ValueError("No waypoints given and no waypoint generator / llm configured.")
+            waypoints = self.generator.generate(copy.deepcopy(input_data)).waypoints
         self._initialize_parameters(input_data)
-        self._initialize_llm_paths()
-        
+        self._initialize_targets(waypoints)
+
         self.PARENT[self.s_start] = self.s_start
         self.g[self.s_start] = 0
         heapq.heappush(self.OPEN, (self.f_value(self.s_start), self.s_start))
 
+        found = False
         while self.OPEN:
             _, s = heapq.heappop(self.OPEN)
             self.CLOSED.append(s)
+            self.closed_set.add(s)
 
             if s == self.s_goal:  # stop condition
+                found = True
                 break
 
             for s_n in self.get_neighbor(s):
                 if s_n == self.s_target and self.s_goal != self.s_target :
                     self._update_target()
                     self._update_queue()
-                    print(s_n, self.s_target)
-                    
-                if s_n in self.CLOSED:
+
+                if s_n in self.closed_set:
                     continue
 
                 new_cost = self.g[s] + self.cost(s, s_n)
                 if s_n not in self.g:
                     self.g[s_n] = math.inf
-                    
+
                 if new_cost < self.g[s_n]:  # conditions for updating Cost
                     self.g[s_n] = new_cost
                     self.PARENT[s_n] = s
                     heapq.heappush(self.OPEN, (self.f_value(s_n), s_n))
 
-        path = self.extract_path(self.PARENT)
+        path = self.extract_path(self.PARENT) if found else []
         visited = self.CLOSED
         result = {
             "operation": len(self.CLOSED),
             "storage": len(self.g),
-            "length": sum(self._euclidean_distance(path[i], path[i+1]) for i in range(len(path)-1)),
+            "length": sum(self._euclidean_distance(path[i], path[i+1]) for i in range(len(path)-1)) if found else None,
+            "valid": found,
+            "path": path,
+            "visited": visited,
             "llm_output": self.target_list
         }
-        print(result)
-        self.plot.animation(path, visited, True, "LLM-A*", self.filepath)
+        if self.filepath:
+            plot = plotting.Plotting(self.s_start, self.s_goal, self.Env)
+            plot.animation(path, visited, False, self.name, self.filepath)
         return result
 
     @staticmethod
@@ -201,4 +201,3 @@ class LLMAStar:
     def heuristic(self, s):
         """Calculate heuristic value."""
         return math.hypot(self.s_goal[0] - s[0], self.s_goal[1] - s[1]) + math.hypot(self.s_target[0] - s[0], self.s_target[1] - s[1])
-
