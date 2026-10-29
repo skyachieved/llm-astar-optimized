@@ -1,21 +1,35 @@
-# LLM-A* testbed: can we make A* cheaper?
+# Clear Democratic A*
 
-This repository asks one question: **can A\* path search do less work and use less memory, and still find
-near-optimal paths?**
+This repository tests whether **better waypoints make LLM-guided A\* search more efficient**. It is work in
+progress: step 1, reproducing LLM-A\*, is done; the method itself is next.
 
-It starts from [LLM-A\*](https://arxiv.org/abs/2407.02511) (Meng et al., 2024). The original code is at
+It builds on [LLM-A\*](https://arxiv.org/abs/2407.02511) (Meng et al., 2024). The original code is at
 [SilinMeng0510/llm-astar](https://github.com/SilinMeng0510/llm-astar), and this is not the authors' repository.
-In LLM-A\*, a large language model reads the map and proposes a few waypoints between the start and the goal. A\*
-then searches toward one waypoint after another, so it explores much less of the map than plain A\*.
+In LLM-A\*, one LLM reads the map as text and proposes waypoints between the start and the goal. A\* then searches
+toward one waypoint after another, so it expands far fewer states than plain A\*. A single LLM's waypoints are often
+wrong, though. In our reproduction, on 25% of the queries every few-shot waypoint lay on a wall or at the map edge
+and had to be dropped. Some kept waypoints led the search the wrong way.
 
-- **Step 1, done: reproduce the paper.** We re-ran Table 1 and Figs. 1–3 with Llama-3-8B-Instruct, served locally
-  by vLLM on one 24 GB GPU. The results are below. [REPRODUCTION.md](REPRODUCTION.md) has the details, every
-  choice the paper left open, and why some numbers differ.
-- **Next: new ways of choosing waypoints.** The search code never talks to the LLM; it only takes a list of
-  waypoints. A new method is a new waypoint generator in `llmastar/waypoints/`, and it shows up as a new row in
-  the results table.
+**The idea.** Clear Democratic A\* picks waypoints in four stages:
 
-## Results
+1. Several LLM instances propose waypoints independently. Each one sees the map in a different encoding, for
+   example coordinate text, a list of wall corners, or an image.
+2. Only the waypoints the instances agree on are kept, and an instance can veto another's waypoints.
+3. A multimodal (vision) model checks the remaining path against an image of the map, and trims or rejects
+   waypoints that don't hold up.
+4. A\* searches through the waypoints that survive.
+
+This makes more LLM calls per query than LLM-A\*. The question is whether the better waypoints are worth it: fewer
+A\* operations and less memory, shorter paths, and fewer queries where the LLM's guidance fails.
+
+- **Step 1, done: reproduce LLM-A\*.** We re-ran the paper's Table 1 and Figs. 1–3 with Llama-3-8B-Instruct,
+  served locally by vLLM on one 24 GB GPU. The results are below. [REPRODUCTION.md](REPRODUCTION.md) has the
+  details, every choice the paper left open, and why some numbers differ.
+- **Step 2, next: build and measure Clear Democratic A\*.** The search code never talks to the LLM; it only takes
+  a list of waypoints. The method is a new waypoint generator in `llmastar/waypoints/`, so the search stays the
+  same, and the method shows up as new rows in the results table.
+
+## Step 1 results: LLM-A\* reproduced
 
 All 1,000 benchmark queries (100 maps × 10 start/goal pairs). Each value is relative to A\* (A\* = 100) and shown
 as **ours / paper**. Lower is better for operations (states expanded) and storage (states kept in memory); a path
