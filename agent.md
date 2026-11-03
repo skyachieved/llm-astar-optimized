@@ -162,31 +162,44 @@ efficient search, at the cost of more LLM calls.
 
 ## Current status
 - Phase: Quorum-A*. Reproduction (Table 1, Figs. 1–3, ours-vs-paper figures, 92bf3da) and step 1 are done.
-- Step 1b: test written (`tests/test_astar.py`), waiting for the user's `pytest` run; then the REPRODUCTION.md note.
-- Waiting on the user: `scripts/get_qwen_vl.sh`, then `scripts/serve_local.sh qwen2.5-vl`.
-- Next: finish 1b, then 2.0, then 2a.
+- 1b done: the test now pins our 82 / 228 / 53.46 (paper 140 / 235 / 53.46; gap in REPRODUCTION.md), PR #1
+  (`fix-1b-test`), merged into main (883e532). All tests pass.
+- Branch `quorumastar` (from main 883e532): steps 2a, 2b and 2e done with tests (`tests/test_wastar.py`,
+  `tests/test_quorumastar_search.py`); weighted A* w = 1.5 / 2 / 3 run on all 1,000 queries (see Results).
+- Second site, dgx (Tailscale, user `ymkwon`, work under `/raid/slpr/ymkwon`, never in `~`): 8× V100-SXM2 16 GB,
+  driver 535 (CUDA 12.2). torch 2.8.0+cu128 runs there (sm_70 in the arch list); vLLM 0.11.0 in
+  `/raid/slpr/ymkwon/envs/vllm` serves Llama-3-8B-Instruct with `--dtype float16 --tensor-parallel-size 2
+  --gpu-memory-utilization 0.90 --max-num-seqs 32 --enforce-eager` (FlexAttention backend; without the last two
+  flags the warm-up runs out of memory on 16 GB). These are deviations from the bf16 A5000 Table 1 run.
+- dgx parity check passed (see Results): on the first 50 queries, fp16/V100 and the team's bf16/A5000 LLM-A* runs
+  agree on 45/50 queries and differ by < 1 point on the averages, so dgx can run the LLM experiments.
+- Step 2.0 done on branch `client-2.0` (a–e; f documented, the `-stopnl-max100` Table 1 runs are still to do): see Log.
+- Step 2 done: 2c, and 2d (`llmastar/quorumastar/`: config, geometry, canonical, voting, pruning, render, parsing,
+  views, fewshot, `QuorumAStarGenerator`; `--method quorumastar`). Nothing has run against a real model yet: every
+  test uses a mock. GPT-4o mini has never been called (no API key yet). Next: step 3 on dgx; Qwen2.5-VL-7B on dgx needs the same fp16 parity
+  check before step 3; run Table 1 with `--stop-newline --max-tokens 100` for 2.0f.
 
 ## Next steps
 - [x] 1. Read the repo and REPRODUCTION.md; write agent.md and METHOD.md. *(2026-11-03; layout = METHOD.md §10)*
 - [ ] 1b. *(approved 2026-11-03)* Verify the LLM-A* search without an LLM: feed it the waypoints read off the paper's
       Fig. 1 and expect 140 / 235 / 53.46. An exact match verifies the loop independent of the model.
 - [ ] 2.0 *(approved 2026-11-03, after 1b)* User-facing interface, one commit each:
-  - [ ] a. Key from `api_key`, else `openai.api_key`, else `OPENAI_API_KEY`; `LLMAStar(llm='gpt')` keeps working and
+  - [x] a. Key from `api_key`, else `openai.api_key`, else `OPENAI_API_KEY`; `LLMAStar(llm='gpt')` keeps working and
         uses `prompt_set="gpt"` (chat completions only).
-  - [ ] b. Client: 60 s per-call timeout; retry 429 / 5xx / timeouts up to 3× with exponential backoff; on a rejected
+  - [x] b. Client: 60 s per-call timeout; retry 429 / 5xx / timeouts up to 3× with exponential backoff; on a rejected
         parameter, drop it and retry once; never retry other 4xx; errors returned, never raised or cached; separate
         `--stop-newline` (original `stop="\n"`) and `--max-tokens` flags; "original setup" runs use both
         (stop "\n", max_tokens 100).
-  - [ ] c. Generator / runner: an LLM failure becomes "no waypoints" plus an `llm_error` column and a printed count.
-  - [ ] d. Tests with a mock text-only model. e. README as the user-facing interface (install, key, run on a map/query file,
+  - [x] c. Generator / runner: an LLM failure becomes "no waypoints" plus an `llm_error` column and a printed count.
+  - [x] d. Tests with a mock text-only model. [x] e. README as the user-facing interface (install, key, run on a map/query file,
         reproduce Table 1 with one command, output format); `--dataset` accepts a single query file.
-  - [ ] f. REPRODUCTION.md: `stop="\n"` / `max_tokens` as setup deviations; Table 1 reported both ways.
+  - [~] f. REPRODUCTION.md: `stop="\n"` / `max_tokens` as setup deviations (documented; runs pending); Table 1 reported both ways.
 - [ ] 2. Shared infrastructure, each with mock-LLM pytest tests and a CI workflow (Python 3.11, requirements.txt only):
-  - [ ] a. `_after_pop` hook + `QuorumAStar` stall fallback; identical metrics at `stall_k=0` on a fixed set of maps.
-  - [ ] b. `--method wastar --weight W` (= `DWAStar(w0=W, decay=1)`); w = 1 equals A*.
-  - [ ] c. Client: image message parts (cache stores an image hash), JSON mode with fallback.
-  - [ ] d. `llmastar/quorumastar/` modules (METHOD.md §10) + the §6 "all off" test (same messages and cache key as
-        `PromptWaypointGenerator`, same results as `LLMAStar`). e. CI pinned to `ubuntu-22.04`.
+  - [x] a. `_after_pop` hook + `QuorumAStar` stall fallback; identical metrics at `stall_k=0` on a fixed set of maps. *(2026-11-03, branch quorumastar)*
+  - [x] b. `--method wastar --weight W` (= `DWAStar(w0=W, decay=1)`); w = 1 equals A*. *(2026-11-03)*
+  - [x] c. Client: image message parts (cache stores an image hash), JSON mode with fallback. *(2026-11-03)*
+  - [x] d. `llmastar/quorumastar/` modules (METHOD.md §10) *(2026-11-03; all off = LLM-A* tested with a mock model)* + the §6 "all off" test (same messages and cache key as
+        `PromptWaypointGenerator`, same results as `LLMAStar`). [x] e. CI pinned to `ubuntu-22.04`. *(2026-11-03)*
 - [ ] 3. End to end: `python -m llmastar.run --method quorumastar ...`. Baselines on qwen2.5-vl-7b-instruct (all 1,000):
       astar, wastar w = 1.5 / 2 / 3, llmastar standard / cot / repe; wastar ×3 also on llama-3-8b-instruct. All-off run:
       0 new LLM requests and metrics equal to `llmastar_standard.csv`.
@@ -214,6 +227,8 @@ efficient search, at the cost of more LLM calls.
       work from artifacts.
 
 ## Decisions (date · decision · reason; superseded ones are marked, never deleted)
+- 2026-11-03 · `LLMAStar(llm='gpt')` = GPT-4o mini (was gpt-3.5-turbo), Chat Completions, `prompt_set="gpt"`; the course
+  evaluates with GPT-4o mini · KC (to confirm with the team). `python -m llmastar.table1` runs every Table 1 row.
 - 2026-10-29 · Generators register in `llmastar/waypoints/REGISTRY`; the search consumes a waypoint list · swappable step.
 - 2026-10-29 · Temperature 0, `max_tokens` 2048, cache in `.cache/llm/` by model, URL, messages, sampling · free reruns
   (REPRODUCTION.md deviation 2). `scripts/` is git-ignored; figure code is in `llmastar/figures/`.
@@ -288,12 +303,51 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   (about ±1), not the authors' data. Three of our 10 queries get no LLM-A* saving at 10×; cause not yet tested.
 - 2026-10-29 · `llmastar_standard` had `no_targets` = 25.40% (those queries ran as weighted A*, w = 2) ·
   `outputs/llama-3-8b-instruct/summary.md`.
-- Weighted A* (w = 1.5, 2, 3): **not run yet** (step 3).
+- 2026-11-03 · Weighted A* (constant w) · all 1,000 queries · `outputs/llama-3-8b-instruct/wastar-w{1.5,2,3}.csv`,
+  `summary.md`. Ops / storage / length (A* = 100): w = 1.5: 40.06 / 60.26 / 100.74; w = 2: 34.32 / 56.23 / 102.02;
+  w = 3: 29.92 / 53.26 / 103.68; all valid 100%. So weighted A* with w = 2 expands fewer nodes (34.32) than LLM-A*
+  standard (42.99) at a shorter path (102.02 vs 102.27), with no LLM call. This confirms the Research-rationale
+  hypothesis on our own data; the external 34.3% can now be replaced by this file.
+- 2026-11-03 · dgx parity check · llama-3-8b-instruct, `llmastar --prompt standard --limit 50` · fp16 on 2× V100
+  (dgx, `outputs_dgx/`, not committed) vs. the committed bf16 A5000 run. Identical metrics on 45/50 queries; averages
+  (A* = 100) ops 45.36 vs 44.89, storage 62.41 vs 61.76, length 101.57 vs 101.60, no_targets 22.0% vs 22.0%, valid
+  100% both. The 5 differing queries go both ways (ops 505→453, 80→75, 346→407, 388→523, 111→140). 50 LLM calls took
+  69 s (eager mode). Reading: fp16 changes a few greedy answers, not the averages.
+- 2026-11-03 · Stall fallback on the Fig. 1 query with the paper's waypoints (`tests/test_quorumastar_search.py`):
+  k = 2 fires at pop 80 (leg (24, 15) -> (5, 6): budget 56, 57 pops used), one pop before the target; k = 3 never
+  fires. Result unchanged either way. Evidence that k = 2 is tight; the pilot (self-generated maps) decides k.
 
 ## Open questions
-None open. Q6–Q8 were answered on 2026-11-03 (see Decisions).
+- Q10. `--stall-k` default: 2 (METHOD.md) fired on the Fig. 1 query one pop early. Keep 2 and let the pilot decide, or
+  change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-03 (KC = yumin0-0, branch `quorumastar`) · 2d part 2: config (flags, run-name variants), render (PNG, numbered
+  waypoints), parsing (JSON, fenced, fallback list, ids), views (text / corners / image / relations / paper), fewshot
+  (seeded pool of generated maps, gold = string-pulled A* corners; never an evaluation map), generator (concurrent
+  views, abstentions, vision judge, per-query log), runner (`--method quorumastar`, CSV `fallback, fallback_pop, calls,
+  prompt_tokens, completion_tokens, llm_seconds`). §6 test: all off sends LLM-A*'s exact request (same cache key, 0
+  new requests) and gives identical search results. Prompt sizes on the benchmark: corners view up to ~9.6k chars
+  (~3k tokens), fits 8,192. 110 tests pass. Note: commits up to 20b81a3 carry author KC <kichul0914@gmail.com>, the
+  same person as yumin0-0.
+- 2026-11-03 (KC, branch `quorumastar`) · 2c: `image_part`, `redact_images` (cache key and record hold a sha256),
+  `json_mode` falls back when rejected (`tests/test_client_multimodal.py`). 2d part 1: `llmastar/quorumastar/`
+  geometry (filter = the search's, checked cell by cell), canonical (§4.3), voting (§4.4), pruning (§4.5);
+  `tests/test_quorumastar_core.py` uses agent.md's worked example as the oracle. 84 tests pass.
+- 2026-11-03 (KC, branch `client-2.0`) · 2.0a key order + `llm='gpt'` (`tests/test_client.py`); 2.0b client: 60 s
+  timeout, 3 retries with backoff on timeouts / connection / 408 / 409 / 429 / 5xx, one retry without a rejected
+  parameter, other errors returned and not cached, `--api-key`, `--stop-newline`; 2.0c/d generator never raises,
+  `llm_error` CSV column + printed count, LLMAStar warns (`tests/test_llm_failures.py`); 2.0e `--dataset` takes one
+  map / one query / a list of queries, `python -m llmastar.table1`, README "Use it on your own maps"
+  (`tests/test_dataset_formats.py`); 2.0f deviation text in REPRODUCTION.md (2 and 7). 63 tests pass.
+- 2026-11-03 (KC) · 1b fixed (PR #1): test pins 82 / 228 / 53.46; no reading of (24, 16) within ±2 cells gives
+  storage 235. dgx set up (V100 16 GB, driver 535): torch 2.8.0+cu128 runs on sm_70; vLLM 0.11.0 serves
+  Llama-3-8B in fp16 on two GPUs (OOM on warm-up fixed with --max-num-seqs 32 --enforce-eager); 50-query parity
+  check vs. the bf16 run passed (45/50 identical, averages within 1 point).
+- 2026-11-03 (KC, branch `quorumastar`) · 2b: `--method wastar --weight W` in `run.py` (+ `tests/test_wastar.py`,
+  fc04acb); 2a: `_after_pop` hook in `llm_a_star.py`, `pather/quorum_a_star/` with the stall fallback
+  (+ `tests/test_quorumastar_search.py`, 2830268); 2e: CI on ubuntu-22.04 (9db5674). Ran wastar w = 1.5 / 2 / 3 on
+  all 1,000 queries and refreshed `summary.md` / `summary.csv`. Found the 1b test failing on main (fixed in PR #1).
 - 2026-11-03 · Applied review (retry policy, pilot ground truth, hypothesis wording, Q6–Q8, incident-encoded corners,
   candidate `relations`; METHOD.md §11, README "Inspirations"). Rewrote this file as an agent prompt; recorded the
   environment constraints; rendered ours-vs-paper figures. Added the 1b test

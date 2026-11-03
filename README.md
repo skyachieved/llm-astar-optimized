@@ -56,6 +56,59 @@ Left (Fig. 1): A\* and LLM-A\* on the paper's example query. Both of Llama's way
 drops them (hollow stars), and it still needs only 183 operations against A\*'s 859. Right (Fig. 3): on maps enlarged up to
 10×, A\*'s work grows 108× and LLM-A\*'s 73×. All figures are in [`outputs/figures/`](outputs/figures/).
 
+## Use it on your own maps
+
+Needs Python 3.11 and `pip install -r requirements.txt`, nothing else (no GPU, no torch). The default model is
+GPT-4o mini; any OpenAI-compatible endpoint (a local vLLM server, another provider) works by changing the model and
+the base URL.
+
+**API key.** Set `OPENAI_API_KEY`, or `openai.api_key` in Python, or pass `--api-key`. The key is never written to
+the cache, the logs or the outputs.
+
+**One query from Python** (the original repository's interface):
+
+```python
+from llmastar.pather import LLMAStar
+
+query = {"start": [5, 5], "goal": [27, 15], "range_x": [0, 51], "range_y": [0, 31],
+         "horizontal_barriers": [[10, 0, 25], [15, 30, 50]],   # [y, x_start, x_end]
+         "vertical_barriers": [[25, 10, 22]]}                  # [x, y_start, y_end]
+result = LLMAStar(llm="gpt", prompt="standard").searching(query=query, filepath="search.png")
+print(result["operation"], result["storage"], result["length"], result["valid"])
+```
+
+`llm="gpt"` is GPT-4o mini with the paper's GPT prompts (`prompt` is `standard`, `cot` or `repe`). The result has
+`operation` (states expanded), `storage` (states stored), `length` (path length), `valid`, `path`, `visited` and
+`llm_output` (the start, the waypoints kept and the goal). `filepath` is optional and saves a plot.
+
+**A whole map file from the command line.** `--dataset` takes the benchmark format
+(`dataset/environment_50_30.json`: a list of maps, each with `id`, `range_x`, `range_y`, the two barrier lists and
+`start_goal` pairs), a single map, a single query as above, or a list of queries.
+
+```bash
+export OPENAI_API_KEY=sk-...
+python -m llmastar.run --method astar    --dataset my_maps.json --model gpt-4o-mini
+python -m llmastar.run --method llmastar --dataset my_maps.json --model gpt-4o-mini \
+  --base-url https://api.openai.com/v1 --prompt-set gpt --prompt standard
+```
+
+Each run writes `outputs/<model>/<run>.csv` with one row per query: `map_id, sg_idx, start, goal, method, prompt,
+model, operation, storage, length, valid, valid_lenient, parse_ok, n_waypoints, n_targets, seconds, error,
+llm_error`. A failed LLM call never stops a run: that query runs without waypoints (as LLM-A\* does when it gets
+none), `llm_error` says why, and the run prints how many failed. Failures are not cached, so running the same
+command again retries only them. Calls time out after 60 s and are retried up to 3 times on rate limits, timeouts
+and server errors.
+
+**Table 1 in one command** (all rows, then `outputs/<model>/summary.md`):
+
+```bash
+python -m llmastar.table1 --model gpt-4o-mini --base-url https://api.openai.com/v1 --prompt-set gpt
+python -m llmastar.table1 --limit 50     # a quick pilot on the first 50 queries, local vLLM server
+```
+
+`--stop-newline --max-tokens 100` reproduces the original repository's sampling (`stop="\n"`, 100 tokens); it
+cuts multi-line CoT and RePE answers, so the defaults are no stop and 2,048 tokens (REPRODUCTION.md).
+
 ## Setup
 
 You need Linux, conda, and an NVIDIA GPU with at least 24 GB of memory. The GPU is only for the LLM runs; A\* and

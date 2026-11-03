@@ -15,7 +15,8 @@ class WaypointResult:
 
 class WaypointGenerator(Protocol):
     """Maps a query (map + start/goal, as loaded by llmastar.benchmark) to waypoints. Must be thread-safe:
-    the runner calls `generate` from several threads at once."""
+    the runner calls `generate` from several threads at once. Must not raise on an LLM failure: it returns no
+    waypoints and puts the reason in raw["llm_error"] (the search then runs with start and goal only)."""
     name: str
 
     def generate(self, query: dict) -> WaypointResult: ...

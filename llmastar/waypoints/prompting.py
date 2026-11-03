@@ -27,12 +27,17 @@ class PromptWaypointGenerator:
         return [{"role": "user", "content": gpt_prompt[self.prompt].format(**fields).strip()}]
 
     def generate(self, query):
+        """Never raises: an LLM failure gives no waypoints, parse_ok False and `llm_error` in the raw record."""
         messages = self.messages(query)
         chat_with_info = getattr(self.client, "chat_with_info", None)
-        if chat_with_info is not None:
-            response, info = chat_with_info(messages)
-        else:
-            response, info = self.client.chat(messages), {}
+        try:
+            if chat_with_info is not None:
+                response, info = chat_with_info(messages)
+            else:
+                response, info = self.client.chat(messages), {}
+        except Exception as error:  # noqa: BLE001 - a client without the error contract (e.g. Llama3)
+            response, info = "", {"error": f"{type(error).__name__}: {error}"[:500]}
+        response = response or ""
         waypoints, parse_ok = parse_waypoints(response)
         raw = {
             "generator": "prompt",
@@ -43,6 +48,7 @@ class PromptWaypointGenerator:
             "response": response,
             "waypoints": [list(p) for p in waypoints],
             "parse_ok": parse_ok,
-            **info,
+            **{k: v for k, v in info.items() if k != "error"},
+            "llm_error": info.get("error", ""),
         }
         return WaypointResult(waypoints, parse_ok, raw)

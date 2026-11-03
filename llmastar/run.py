@@ -1,6 +1,7 @@
 """Run one method over the benchmark and write outputs/<model>/<run>.csv (+ raw/ and traces/).
 
   python -m llmastar.run --method astar
+  python -m llmastar.run --method wastar --weight 2          # weighted A*, run name wastar-w2
   python -m llmastar.run --method llmastar --prompt cot --limit 50
 
 LLM methods first get waypoints for every query (concurrent requests, cached on disk), then run the
@@ -15,14 +16,17 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 
 from llmastar.benchmark import DEFAULT_DATASET, evaluate_llm_path, load_queries
 from llmastar.outputs import OUTPUTS_ROOT, RunPaths, run_name
-from llmastar.pather import AStar, DWAStar, LLMAStar
-from llmastar.waypoints import REGISTRY
+from llmastar.pather import AStar, DWAStar, LLMAStar, QuorumAStar
+from llmastar.quorumastar.config import QuorumConfig, add_cli_args
+from llmastar.waypoints import REGISTRY, WaypointResult
 
-METHODS = ("astar", "dwastar", "llm_only", "llmastar")
-LLM_METHODS = ("llm_only", "llmastar")
+METHODS = ("astar", "dwastar", "wastar", "llm_only", "llmastar", "quorumastar")
+LLM_METHODS = ("llm_only", "llmastar", "quorumastar")
 QUERY_KEYS = ("start", "goal", "range_x", "range_y", "horizontal_barriers", "vertical_barriers")
 CSV_FIELDS = ["map_id", "sg_idx", "start", "goal", "method", "prompt", "model", "operation", "storage", "length",
-              "valid", "valid_lenient", "parse_ok", "n_waypoints", "n_targets", "seconds", "error"]
+              "valid", "valid_lenient", "parse_ok", "n_waypoints", "n_targets", "seconds", "error", "llm_error",
+              "fallback", "fallback_pop", "calls", "prompt_tokens", "completion_tokens", "llm_seconds"]
+QUORUM_COLUMNS = ("calls", "prompt_tokens", "completion_tokens", "llm_seconds")
 
 
 def log(message):
@@ -45,23 +49,33 @@ def matches(ids, query):
 def build_generator(args):
     from llmastar.model import ChatGPT
     client = ChatGPT(model=args.model, base_url=args.base_url, temperature=args.temperature,
-                     max_tokens=args.max_tokens, cache_dir=args.cache_dir)
+                     max_tokens=args.max_tokens, cache_dir=args.cache_dir, api_key=getattr(args, "api_key", None),
+                     stop=["\n"] if getattr(args, "stop_newline", False) else None)
     return REGISTRY[args.generator](client, args)
 
 
+def _safe_generate(generator, query):
+    """generator.generate, with any exception turned into "no waypoints" so one query never stops the run."""
+    try:
+        return generator.generate(query)
+    except Exception as error:  # noqa: BLE001
+        return WaypointResult([], False, {"llm_error": f"{type(error).__name__}: {error}"[:500]})
+
+
 def generate_waypoints(generator, queries, workers):
-    """Call the generator for every query concurrently (vLLM batches them). An error aborts the run; finished
-    responses are already cached, so rerunning resumes where it stopped."""
+    """Call the generator for every query concurrently (vLLM batches them). A failed LLM call gives that query no
+    waypoints and an llm_error; failures are not cached, so rerunning the command retries only them."""
     results = [None] * len(queries)
-    start, cached = time.time(), 0
+    start, cached, failed = time.time(), 0, 0
     pool = ThreadPoolExecutor(max_workers=workers)
     try:
-        futures = {pool.submit(generator.generate, query): i for i, query in enumerate(queries)}
+        futures = {pool.submit(_safe_generate, generator, query): i for i, query in enumerate(queries)}
         for done, future in enumerate(as_completed(futures), 1):
             result = results[futures[future]] = future.result()
             cached += bool(result.raw.get("cached"))
+            failed += bool(result.raw.get("llm_error"))
             if done % 50 == 0 or done == len(queries):
-                log(f"[llm] {done}/{len(queries)} ({cached} from cache) {time.time() - start:.0f}s")
+                log(f"[llm] {done}/{len(queries)} ({cached} from cache, {failed} failed) {time.time() - start:.0f}s")
     except BaseException:
         pool.shutdown(wait=False, cancel_futures=True)
         raise
@@ -76,10 +90,12 @@ def search_one(job):
     try:
         if method == "astar":
             result = AStar().searching(query, filepath=plot_path)
-        elif method == "dwastar":
+        elif method in ("dwastar", "wastar"):
             result = DWAStar(**options).searching(query, filepath=plot_path)
         elif method == "llmastar":
             result = LLMAStar().searching(query, filepath=plot_path, waypoints=waypoints)
+        elif method == "quorumastar":
+            result = QuorumAStar(**options).searching(query, filepath=plot_path, waypoints=waypoints)
         else:
             result = evaluate_llm_path(query, waypoints)
         result["error"] = ""
@@ -117,8 +133,13 @@ def parse_args(argv=None):
     p.add_argument("--generator", default="prompt", choices=sorted(REGISTRY), help="waypoint generator")
     p.add_argument("--model", default="llama-3-8b-instruct", help="served model name; also names outputs/<model>/")
     p.add_argument("--base-url", default=os.environ.get("OPENAI_BASE_URL", "http://127.0.0.1:8000/v1"))
+    p.add_argument("--api-key", default=None,
+                   help="API key; default: openai.api_key, then $OPENAI_API_KEY. Never logged or cached.")
     p.add_argument("--temperature", type=float, default=0.0)
-    p.add_argument("--max-tokens", type=int, default=2048)
+    p.add_argument("--max-tokens", type=int, default=2048,
+                   help="completion token limit (the original repository used 100)")
+    p.add_argument("--stop-newline", action="store_true",
+                   help='send stop="\\n" as the original repository did; it cuts multi-line CoT / RePE answers')
     p.add_argument("--limit", type=int, help="only the first N queries (dataset order: map 0 sg 0..9, map 1 ...)")
     p.add_argument("--queries", nargs="+", metavar="MAP:SG", help="only these queries, e.g. 1:0 or 1:* (whole map)")
     p.add_argument("--trace", nargs="*", default=["1:*"], metavar="MAP:SG",
@@ -126,6 +147,8 @@ def parse_args(argv=None):
     p.add_argument("--plot", action="store_true", help="also save a PNG per query under outputs/<model>/plots/")
     p.add_argument("--workers", type=int, default=16, help="concurrent LLM requests")
     p.add_argument("--jobs", type=int, default=4, help="search worker processes")
+    p.add_argument("--weight", type=float, default=2.0,
+                   help="weighted A* (--method wastar): constant weight w in f = g + w * h; w = 1 is A*")
     p.add_argument("--dwa-w0", type=float, default=2.0, help="Dynamic WA* initial weight")
     p.add_argument("--dwa-decay", type=float, default=0.99, help="Dynamic WA* weight decay")
     p.add_argument("--dwa-schedule", default="pop", choices=("pop", "depth"), help="Dynamic WA* decay schedule")
@@ -134,10 +157,24 @@ def parse_args(argv=None):
                         "--no-dwa-rekey fixes each priority at push time")
     p.add_argument("--dwa-min-weight", type=float, default=1.0,
                    help="Dynamic WA*: lower bound of the weight (0 lets it decay below 1)")
+    add_cli_args(p)
     p.add_argument("--dataset", default=str(DEFAULT_DATASET))
     p.add_argument("--out", default=str(OUTPUTS_ROOT), help="outputs root")
     p.add_argument("--cache-dir", default=".cache/llm")
     return p.parse_args(argv)
+
+
+def wastar_options(weight):
+    """Weighted A* = Dynamic WA* with a constant weight (decay 1), so no new search code is needed."""
+    return {"w0": weight, "decay": 1.0, "schedule": "pop", "rekey": False, "min_weight": 1.0}
+
+
+def llm_variant(args):
+    """Run-name suffix for non-default LLM sampling, e.g. llmastar_cot-stopnl-max100 (the original setup)."""
+    parts = ["stopnl"] if args.stop_newline else []
+    if args.max_tokens != 2048:
+        parts.append(f"max{args.max_tokens}")
+    return "-".join(parts) or None
 
 
 def dwa_variant(args):
@@ -159,8 +196,21 @@ def main(argv=None):
     selected = parse_ids(args.queries)
     queries = [q for q in load_queries(args.dataset) if not selected or matches(selected, q)][:args.limit]
     is_llm = args.method in LLM_METHODS
+    if args.method == "quorumastar":
+        args.generator = "quorumastar"
     tag = (args.prompt if args.generator == "prompt" else args.generator) if is_llm else None
-    variant = dwa_variant(args) if args.method == "dwastar" else None
+    if args.method == "quorumastar":
+        tag = None  # run name quorumastar[-variant]
+    if args.method == "dwastar":
+        variant = dwa_variant(args)
+    elif args.method == "wastar":
+        variant = f"w{args.weight:g}"  # wastar-w1.5, wastar-w2, wastar-w3
+    elif args.method == "quorumastar":
+        variant = "-".join(v for v in (QuorumConfig.from_args(args).variant(), llm_variant(args)) if v) or None
+    elif is_llm:
+        variant = llm_variant(args)
+    else:
+        variant = None
     run = run_name(args.method, tag, variant)
     paths = RunPaths(args.model, run, args.out)
     paths.dir.mkdir(parents=True, exist_ok=True)
@@ -176,8 +226,15 @@ def main(argv=None):
                           "base_url": args.base_url, **result.raw}
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-    options = {"w0": args.dwa_w0, "decay": args.dwa_decay, "schedule": args.dwa_schedule,
-               "rekey": args.dwa_rekey, "min_weight": args.dwa_min_weight} if args.method == "dwastar" else {}
+    if args.method == "dwastar":
+        options = {"w0": args.dwa_w0, "decay": args.dwa_decay, "schedule": args.dwa_schedule,
+                   "rekey": args.dwa_rekey, "min_weight": args.dwa_min_weight}
+    elif args.method == "wastar":
+        options = wastar_options(args.weight)
+    elif args.method == "quorumastar":
+        options = {"stall_k": args.stall_k, "stall_min": args.stall_min}
+    else:
+        options = {}
     if args.plot:
         paths.plots.mkdir(parents=True, exist_ok=True)
     jobs = [(args.method, options, query, gen.waypoints if gen else None,
@@ -197,6 +254,10 @@ def main(argv=None):
             "parse_ok": int(gen.parse_ok) if gen else "", "n_waypoints": len(gen.waypoints) if gen else "",
             "n_targets": len(result["llm_output"]) if "llm_output" in result else "",
             "seconds": result["seconds"], "error": result["error"],
+            "llm_error": gen.raw.get("llm_error", "") if gen else "",
+            "fallback": "" if "fallback" not in result else int(result["fallback"] is not None),
+            "fallback_pop": (result.get("fallback") or {}).get("pop", ""),
+            **{k: gen.raw.get(k, "") if gen else "" for k in QUORUM_COLUMNS},
         })
         if matches(traced, query):
             paths.traces.mkdir(parents=True, exist_ok=True)
@@ -220,7 +281,12 @@ def main(argv=None):
     from llmastar.summary import summarize_file
     stats = summarize_file(paths.csv, paths.dir / "astar.csv")
     errors = sum(1 for r in rows if r["error"])
-    log(f"wrote {paths.csv}: n={stats['n']} valid={stats['valid']:.2f}% errors={errors} "
+    llm_errors = sum(1 for r in rows if r["llm_error"])
+    if llm_errors:
+        first = next(r["llm_error"] for r in rows if r["llm_error"])
+        log(f"WARNING: {llm_errors}/{len(rows)} LLM calls failed; those queries ran without waypoints. "
+            f"Rerun the same command to retry them. First error: {first}")
+    log(f"wrote {paths.csv}: n={stats['n']} valid={stats['valid']:.2f}% errors={errors} llm_errors={llm_errors} "
         + " ".join(f"{m}={stats[m]:.2f}" for m in ("operation", "storage", "length") if stats.get(m) is not None))
 
 
