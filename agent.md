@@ -322,6 +322,10 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-03 (yumin0-0) · PR #2 merged (main b24bc15). Added `llmastar/figures/fig6_methods.py` (team request): A*,
+  LLM-A*, Quorum-A* searches on one query + averages vs A* with weighted A* (w=2), all on the same queries; a run that
+  does not exist is drawn as an empty panel, never estimated (`tests/test_fig6_methods.py`). Current
+  `outputs/figures/fig6_methods_llama-3-8b-instruct.png` has no Quorum-A* yet. Qwen2.5-VL-7B download started on dgx.
 - 2026-11-03 (KC = yumin0-0, branch `quorumastar`) · 2d part 2: config (flags, run-name variants), render (PNG, numbered
   waypoints), parsing (JSON, fenced, fallback list, ids), views (text / corners / image / relations / paper), fewshot
   (seeded pool of generated maps, gold = string-pulled A* corners; never an evaluation map), generator (concurrent
