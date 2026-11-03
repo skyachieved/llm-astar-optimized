@@ -3,6 +3,7 @@ import copy
 import json
 import math
 import heapq
+import warnings
 
 from llmastar.env.search import env, plotting
 from llmastar.utils import is_lines_collision
@@ -107,7 +108,11 @@ class LLMAStar:
         if waypoints is None:
             if self.generator is None:
                 raise ValueError("No waypoints given and no waypoint generator / llm configured.")
-            waypoints = self.generator.generate(copy.deepcopy(input_data)).waypoints
+            generated = self.generator.generate(copy.deepcopy(input_data))
+            if generated.raw.get("llm_error"):
+                warnings.warn(f"LLM call failed, searching without waypoints: {generated.raw['llm_error']}",
+                              stacklevel=2)
+            waypoints = generated.waypoints
         self._initialize_parameters(input_data)
         self._initialize_targets(waypoints)
 

@@ -42,7 +42,8 @@ def test_generator_never_raises(query, client):
 
 
 def test_search_with_a_failing_llm_is_llmastar_without_waypoints(query):
-    failed = LLMAStar(llm=DownClient()).searching(query)
+    with pytest.warns(UserWarning, match="searching without waypoints"):
+        failed = LLMAStar(llm=DownClient()).searching(query)
     none = LLMAStar().searching(query, waypoints=[])
     assert failed["valid"] and (failed["operation"], failed["storage"]) == (none["operation"], none["storage"])
 
@@ -56,7 +57,8 @@ def test_llm_gpt_without_key_still_searches(query, monkeypatch):
     import openai
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setattr(openai, "api_key", None, raising=False)
-    result = LLMAStar(llm="gpt").searching(query)  # no network: the missing key fails before any request
+    with pytest.warns(UserWarning, match="No API key"):
+        result = LLMAStar(llm="gpt").searching(query)  # no network: the missing key fails before any request
     assert result["valid"] and result["llm_output"] == [tuple(query["start"]), tuple(query["goal"])]
 
 
