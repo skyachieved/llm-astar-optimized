@@ -117,6 +117,7 @@ class LLMAStar:
             _, s = heapq.heappop(self.OPEN)
             self.CLOSED.append(s)
             self.closed_set.add(s)
+            self._after_pop(s)
 
             if s == self.s_goal:  # stop condition
                 found = True
@@ -154,6 +155,10 @@ class LLMAStar:
             plot = plotting.Plotting(self.s_start, self.s_goal, self.Env)
             plot.animation(path, visited, False, self.name, self.filepath)
         return result
+
+    def _after_pop(self, s):
+        """Hook called right after state `s` is popped and closed. Does nothing here; QuorumAStar overrides it
+        (stall fallback). The only change to the LLM-A* search loop."""
 
     @staticmethod
     def _euclidean_distance(p1, p2):
