@@ -72,3 +72,12 @@ def test_report_runs_on_a_raw_log(maps, tmp_path):
     assert "| image | 6/6 |" in text
     assert "As run: 6/6" in text
     assert (directory / "pilot_quorumastar.md").exists()
+
+
+def test_split_table_separates_queries_with_and_without_waypoints(tmp_path):
+    head = "map_id,sg_idx,operation,storage,valid,n_targets,fallback\n"
+    (tmp_path / "wastar-w2.csv").write_text(head + "0,0,100,100,1,,\n0,1,100,100,1,,\n")
+    (tmp_path / "quorumastar.csv").write_text(head + "0,0,50,80,1,3,0\n0,1,100,100,1,2,1\n")
+    text = "\n".join(pilot.split_table(tmp_path))
+    assert "| quorumastar | used | 1 | 50.0 | 80.0 | 0 |" in text
+    assert "| quorumastar | none | 1 | 100.0 | 100.0 | 1 |" in text

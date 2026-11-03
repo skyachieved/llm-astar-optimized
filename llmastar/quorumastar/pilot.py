@@ -16,6 +16,7 @@ maps). Maps identical to a few-shot example are skipped.
     (r = 0 is the exact-cell vote that ran; r > 0 counts cells within Chebyshev distance r as the same proposal);
   - the vision judge's catch and false-alarm rates;
   - search metrics (geometric mean vs A* = 100) of the runs present, on the queries all of them solved.
+  - every LLM run vs weighted A* (w = 2), split by whether the search kept waypoints (n_targets > 2).
 A waypoint w is bad if it fails the search's filter, is unreachable, or len A*(s, w) + len A*(w, g) > 1.05 len A*(s, g)
 (METHOD.md 11), computed on canonical cells.
 """
@@ -164,6 +165,31 @@ def search_table(directory, run):
     return lines
 
 
+def split_table(directory, reference="wastar-w2"):
+    """Every LLM run vs weighted A* (= 100), split by whether the search ended with waypoints (n_targets > 2: the
+    target list always holds start and goal). A stall fallback clears the waypoints, so those queries count as
+    'none' and the fallback column says how many of them it was."""
+    directory = Path(directory)
+    if not (directory / f"{reference}.csv").exists():
+        return [f"(no {reference}.csv in this directory)"]
+    ref = _rows(directory / f"{reference}.csv")
+    lines = ["| run | waypoints | n | operation | storage | stall fallback |", "|---|---|---|---|---|---|"]
+    for path in sorted(directory.glob("*.csv")):
+        if not path.stem.startswith(("llmastar", "quorumastar")):
+            continue
+        rows = _rows(path)
+        for label, used in (("used", True), ("none", False)):
+            keys = [k for k, r in rows.items() if k in ref and r["valid"] == "1" and ref[k]["valid"] == "1"
+                    and (int(r["n_targets"] or 0) > 2) == used]
+            vals = []
+            for m in ("operation", "storage"):
+                ratios = [float(rows[k][m]) / float(ref[k][m]) for k in keys]
+                vals.append(f"{100 * math.exp(sum(map(math.log, ratios)) / len(ratios)):.1f}" if ratios else "-")
+            fallback = sum(rows[k].get("fallback") == "1" for k in keys)
+            lines.append(f"| {path.stem} | {label} | {len(keys)} | {vals[0]} | {vals[1]} | {fallback} |")
+    return lines
+
+
 def report(directory, run, dataset):
     directory = Path(directory)
     if not (directory / "raw" / f"{run}.jsonl").exists():
@@ -265,6 +291,8 @@ def report(directory, run, dataset):
     calls = sum(r.get("calls", 0) for _, r in records)
     tokens = sum(r.get("prompt_tokens", 0) + r.get("completion_tokens", 0) for _, r in records)
     out += ["", "## Search (geometric mean vs A* = 100, lower is better)", ""] + search_table(directory, run)
+    out += ["", "## Every LLM run vs weighted A* (w = 2, = 100), by whether the search kept waypoints", ""]
+    out += split_table(directory)
     out += ["", f"LLM: {calls} new calls, {tokens} tokens ({tokens / len(records):.0f} per query)."]
     text = "\n".join(out)
     print(text)

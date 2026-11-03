@@ -182,6 +182,9 @@ efficient search, at the cost of more LLM calls.
   course's model, so it went first). Image reading 2/3, all off = LLM-A* confirmed (0 new requests, identical
   metrics), Quorum-A* ran end to end on 5 queries (see Results). Pilot tooling added (`llmastar/quorumastar/pilot.py`);
   next: the pilot on 50 self-generated maps with GPT-4o mini.
+- 2026-11-04: pilot done (see Results). Direction chosen by KC: keep Quorum-A* as the method (claim: it filters the
+  waypoints that make LLM-A* worse than no LLM), fix the defaults from the pilot only, then run all 1,000 queries on
+  gpt-4o-mini; step 6 (harder generated maps) is a generalization check, not a tuning set.
 
 ## Next steps
 - [x] 1. Read the repo and REPRODUCTION.md; write agent.md and METHOD.md. *(2026-11-03; layout = METHOD.md §10)*
@@ -338,11 +341,32 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   the image view answers long axis-aligned paths on multiples of 5. These are evaluation queries: they only show the
   pipeline runs and suggest what the pilot should measure; no default is changed from them.
 
+- 2026-11-04 · Pilot (METHOD.md 11) · gpt-4o-mini · 50 self-generated maps (`pilot make`, seed 1) ·
+  `outputs_pilot/gpt-4o-mini/` (dgx, not committed), `pilot_quorumastar-vtext+corners+image+relations.md`.
+  Search (A* = 100; ops / storage / length): wastar-w2 24.34 / 49.25 / 103.18; llmastar_standard 35.92 / 61.07 /
+  102.89; Quorum-A* with all four views and the vision judge 23.98 / 49.09 / 102.80; without the judge 24.27 / 49.39 /
+  102.87; without any removal 24.39 / 49.66 / 102.96. Against weighted A* (= 100), split by whether the search kept
+  waypoints: LLM-A* kept them on 47/50 queries at ops 151.3 (its waypoints make search worse than no LLM); Quorum-A*
+  with judge kept them on 12/50 at ops 93.9 and ran as weighted A* on the other 38 (100.0); without judge 38/50 at
+  96.1, and the 12 others at 112.2 (6 stall fallbacks). Solo quality (good waypoints / queries with a good one):
+  text 53.2% / 78%, corners 54.7% / 80%, image 57.8% / 100% (521 waypoints, about 10 per answer), relations 62.4% / 86%.
+  Shared bad waypoints: relations repeats text's (31.4% of its bad ones), image almost never repeats anyone (2.3%).
+  Vote (quorum 2, exact cell): 45/50 queries keep a waypoint with 4 views, 66.2% good; text,corners,image 33/50,
+  74.5% good; text,corners,relations 41/50, 63.6%. Matching radius r = 1..3 adds coverage but no quality (r = 2:
+  61.0% with 4 views), so exact-cell voting stays. Vision judge: catch 88.9% (24/27 bad), false alarm 83.0% (44/53
+  good): it keeps few waypoints, but the ones it keeps beat weighted A*. 245 calls, 3.81 M tokens (76k per query).
+  Reading: Quorum-A* removes LLM-A*'s loss (36 -> 24 ops) and matches, not beats, the no-LLM weighted A* overall.
+
 ## Open questions
+- Q11 (pilot, 2026-11-04). Defaults for the 1,000-query run, to be fixed from the pilot only: (a) third view image
+  vs relations under the 4-call budget (3 views + judge), measured by one more pilot run each; (b) keep the vision
+  judge (best overall, conservative) or drop it (cheaper, 4 views fit the budget).
 - Q10. `--stall-k` default: 2 (METHOD.md) fired on the Fig. 1 query one pop early. Keep 2 and let the pilot decide, or
   change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-04 (yumin0-0) · Pilot on gpt-4o-mini (see Results); `pilot report` now also splits every LLM run against
+  weighted A* by whether the search kept waypoints (`split_table`, `tests/test_quorumastar_pilot.py`).
 - 2026-11-03 (yumin0-0) · Step 3 on gpt-4o-mini (see Results) and the pilot tooling: `llmastar/quorumastar/pilot.py`
   (`make`: 50 maps from the few-shot generator under a disjoint seed namespace; `report`: solo quality, shared bad
   waypoints, voting as run and simulated at radius 0..3, vision catch / false-alarm, search vs A*), with
