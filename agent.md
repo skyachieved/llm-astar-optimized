@@ -174,7 +174,8 @@ efficient search, at the cost of more LLM calls.
 - dgx parity check passed (see Results): on the first 50 queries, fp16/V100 and the team's bf16/A5000 LLM-A* runs
   agree on 45/50 queries and differ by < 1 point on the averages, so dgx can run the LLM experiments.
 - Step 2.0 done on branch `client-2.0` (a–e; f documented, the `-stopnl-max100` Table 1 runs are still to do): see Log.
-- Next: 2c (image parts, JSON mode), then 2d (quorumastar modules); Qwen2.5-VL-7B on dgx needs the same fp16 parity
+- 2c done; 2d part 1 done (geometry, canonical, voting, pruning, tested on the worked example). Next: 2d part 2
+  (config, render, views, parsing, fewshot, generator, the §6 "all off" test); Qwen2.5-VL-7B on dgx needs the same fp16 parity
   check before step 3; run Table 1 with `--stop-newline --max-tokens 100` for 2.0f.
 
 ## Next steps
@@ -195,8 +196,8 @@ efficient search, at the cost of more LLM calls.
 - [ ] 2. Shared infrastructure, each with mock-LLM pytest tests and a CI workflow (Python 3.11, requirements.txt only):
   - [x] a. `_after_pop` hook + `QuorumAStar` stall fallback; identical metrics at `stall_k=0` on a fixed set of maps. *(2026-11-03, branch quorumastar)*
   - [x] b. `--method wastar --weight W` (= `DWAStar(w0=W, decay=1)`); w = 1 equals A*. *(2026-11-03)*
-  - [ ] c. Client: image message parts (cache stores an image hash), JSON mode with fallback.
-  - [ ] d. `llmastar/quorumastar/` modules (METHOD.md §10) + the §6 "all off" test (same messages and cache key as
+  - [x] c. Client: image message parts (cache stores an image hash), JSON mode with fallback. *(2026-11-03)*
+  - [~] d. `llmastar/quorumastar/` modules (METHOD.md §10; part 1 done: geometry, canonical, voting, pruning) + the §6 "all off" test (same messages and cache key as
         `PromptWaypointGenerator`, same results as `LLMAStar`). [x] e. CI pinned to `ubuntu-22.04`. *(2026-11-03)*
 - [ ] 3. End to end: `python -m llmastar.run --method quorumastar ...`. Baselines on qwen2.5-vl-7b-instruct (all 1,000):
       astar, wastar w = 1.5 / 2 / 3, llmastar standard / cot / repe; wastar ×3 also on llama-3-8b-instruct. All-off run:
@@ -320,6 +321,10 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-03 (KC, branch `quorumastar`) · 2c: `image_part`, `redact_images` (cache key and record hold a sha256),
+  `json_mode` falls back when rejected (`tests/test_client_multimodal.py`). 2d part 1: `llmastar/quorumastar/`
+  geometry (filter = the search's, checked cell by cell), canonical (§4.3), voting (§4.4), pruning (§4.5);
+  `tests/test_quorumastar_core.py` uses agent.md's worked example as the oracle. 84 tests pass.
 - 2026-11-03 (KC, branch `client-2.0`) · 2.0a key order + `llm='gpt'` (`tests/test_client.py`); 2.0b client: 60 s
   timeout, 3 retries with backoff on timeouts / connection / 408 / 409 / 429 / 5xx, one retry without a rejected
   parameter, other errors returned and not cached, `--api-key`, `--stop-newline`; 2.0c/d generator never raises,
