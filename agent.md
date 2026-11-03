@@ -173,23 +173,25 @@ efficient search, at the cost of more LLM calls.
   flags the warm-up runs out of memory on 16 GB). These are deviations from the bf16 A5000 Table 1 run.
 - dgx parity check passed (see Results): on the first 50 queries, fp16/V100 and the team's bf16/A5000 LLM-A* runs
   agree on 45/50 queries and differ by < 1 point on the averages, so dgx can run the LLM experiments.
-- Next: 2.0 (client), then 2c / 2d; Qwen2.5-VL-7B on dgx needs the same fp16 parity check before step 3.
+- Step 2.0 done on branch `client-2.0` (a–e; f documented, the `-stopnl-max100` Table 1 runs are still to do): see Log.
+- Next: 2c (image parts, JSON mode), then 2d (quorumastar modules); Qwen2.5-VL-7B on dgx needs the same fp16 parity
+  check before step 3; run Table 1 with `--stop-newline --max-tokens 100` for 2.0f.
 
 ## Next steps
 - [x] 1. Read the repo and REPRODUCTION.md; write agent.md and METHOD.md. *(2026-11-03; layout = METHOD.md §10)*
 - [ ] 1b. *(approved 2026-11-03)* Verify the LLM-A* search without an LLM: feed it the waypoints read off the paper's
       Fig. 1 and expect 140 / 235 / 53.46. An exact match verifies the loop independent of the model.
 - [ ] 2.0 *(approved 2026-11-03, after 1b)* User-facing interface, one commit each:
-  - [ ] a. Key from `api_key`, else `openai.api_key`, else `OPENAI_API_KEY`; `LLMAStar(llm='gpt')` keeps working and
+  - [x] a. Key from `api_key`, else `openai.api_key`, else `OPENAI_API_KEY`; `LLMAStar(llm='gpt')` keeps working and
         uses `prompt_set="gpt"` (chat completions only).
-  - [ ] b. Client: 60 s per-call timeout; retry 429 / 5xx / timeouts up to 3× with exponential backoff; on a rejected
+  - [x] b. Client: 60 s per-call timeout; retry 429 / 5xx / timeouts up to 3× with exponential backoff; on a rejected
         parameter, drop it and retry once; never retry other 4xx; errors returned, never raised or cached; separate
         `--stop-newline` (original `stop="\n"`) and `--max-tokens` flags; "original setup" runs use both
         (stop "\n", max_tokens 100).
-  - [ ] c. Generator / runner: an LLM failure becomes "no waypoints" plus an `llm_error` column and a printed count.
-  - [ ] d. Tests with a mock text-only model. e. README as the user-facing interface (install, key, run on a map/query file,
+  - [x] c. Generator / runner: an LLM failure becomes "no waypoints" plus an `llm_error` column and a printed count.
+  - [x] d. Tests with a mock text-only model. [x] e. README as the user-facing interface (install, key, run on a map/query file,
         reproduce Table 1 with one command, output format); `--dataset` accepts a single query file.
-  - [ ] f. REPRODUCTION.md: `stop="\n"` / `max_tokens` as setup deviations; Table 1 reported both ways.
+  - [~] f. REPRODUCTION.md: `stop="\n"` / `max_tokens` as setup deviations (documented; runs pending); Table 1 reported both ways.
 - [ ] 2. Shared infrastructure, each with mock-LLM pytest tests and a CI workflow (Python 3.11, requirements.txt only):
   - [x] a. `_after_pop` hook + `QuorumAStar` stall fallback; identical metrics at `stall_k=0` on a fixed set of maps. *(2026-11-03, branch quorumastar)*
   - [x] b. `--method wastar --weight W` (= `DWAStar(w0=W, decay=1)`); w = 1 equals A*. *(2026-11-03)*
@@ -223,6 +225,8 @@ efficient search, at the cost of more LLM calls.
       work from artifacts.
 
 ## Decisions (date · decision · reason; superseded ones are marked, never deleted)
+- 2026-11-03 · `LLMAStar(llm='gpt')` = GPT-4o mini (was gpt-3.5-turbo), Chat Completions, `prompt_set="gpt"`; the course
+  evaluates with GPT-4o mini · KC (to confirm with the team). `python -m llmastar.table1` runs every Table 1 row.
 - 2026-10-29 · Generators register in `llmastar/waypoints/REGISTRY`; the search consumes a waypoint list · swappable step.
 - 2026-10-29 · Temperature 0, `max_tokens` 2048, cache in `.cache/llm/` by model, URL, messages, sampling · free reruns
   (REPRODUCTION.md deviation 2). `scripts/` is git-ignored; figure code is in `llmastar/figures/`.
@@ -316,6 +320,12 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-03 (KC, branch `client-2.0`) · 2.0a key order + `llm='gpt'` (`tests/test_client.py`); 2.0b client: 60 s
+  timeout, 3 retries with backoff on timeouts / connection / 408 / 409 / 429 / 5xx, one retry without a rejected
+  parameter, other errors returned and not cached, `--api-key`, `--stop-newline`; 2.0c/d generator never raises,
+  `llm_error` CSV column + printed count, LLMAStar warns (`tests/test_llm_failures.py`); 2.0e `--dataset` takes one
+  map / one query / a list of queries, `python -m llmastar.table1`, README "Use it on your own maps"
+  (`tests/test_dataset_formats.py`); 2.0f deviation text in REPRODUCTION.md (2 and 7). 63 tests pass.
 - 2026-11-03 (KC) · 1b fixed (PR #1): test pins 82 / 228 / 53.46; no reading of (24, 16) within ±2 cells gives
   storage 235. dgx set up (V100 16 GB, driver 535): torch 2.8.0+cu128 runs on sm_70; vLLM 0.11.0 serves
   Llama-3-8B in fp16 on two GPUs (OOM on warm-up fixed with --max-num-seqs 32 --enforce-eager); 50-query parity
