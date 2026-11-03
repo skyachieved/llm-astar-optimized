@@ -1,9 +1,11 @@
-# Clear Democratic A* (CDA*): method
+# Quorum-A*: Multi-View LLM Consensus for Robust Heuristic Search in Path Planning
 
-Specification as of 2026-10-29. The implementation is pending (agent.md, steps 2–3). Step 8 checks that this file
-matches the code. Every default below is a CLI flag of `python -m llmastar.run --method cdastar`.
+Method specification.
 
-## 1. Setting: what CDA* plugs into
+Specification as of 2026-11-03 (views revised after review). The implementation is pending (agent.md, steps 2–3). Step 8 checks that this file
+matches the code. Every default below is a CLI flag of `python -m llmastar.run --method quorumastar`.
+
+## 1. Setting: what Quorum-A* plugs into
 
 LLM-A* [1] runs A* [2] on an 8-connected grid, with costs and a collision rule that this repo keeps unchanged:
 
@@ -16,7 +18,7 @@ LLM-A* [1] runs A* [2] on an 8-connected grid, with costs and a collision rule t
   reproduction it happens on 25.4% of the few-shot queries (`no_targets` in
   `outputs/llama-3-8b-instruct/summary.md`).
 
-The waypoint step is pluggable (`llmastar/waypoints/`: query → waypoint list). CDA* is such a generator plus one
+The waypoint step is pluggable (`llmastar/waypoints/`: query → waypoint list). Quorum-A* is such a generator plus one
 optional search hook (§7). The search loop, f-value and metrics are LLM-A*'s.
 
 ## 2. Motivation
@@ -24,21 +26,22 @@ optional search hook (§7). The search loop, f-value and metrics are LLM-A*'s.
 | Weakness diagnosed | Component | Source | Flag |
 |---|---|---|---|
 | One LLM guess can mislead the search | Majority add (≥ 2 of 3) | Self-consistency [4] | `--add-quorum` |
-| Same-model voters share mistakes | One view per voter (text / corners / image) | Graph encodings [5]; ensemble diversity [6] | `--views` |
+| Same-model voters share mistakes | One view per voter: text, corners (incident adjacency list), image; candidate: relations | Graph encodings [5]; adjacency lists on mazes [10]; ensemble diversity [6] | `--views` |
 | Single, delete-only vision judge (MMP-A* [7]) | Majority remove (code / vision / support) | MMP-A* [7], extended | `--remove-quorum`, `--no-vision` |
 | Bad plans blow up the worst case | Stall fallback to weighted A* | Weighted A* [3] | `--stall-k` (0 = off) |
 | Float / never-hit waypoints drag the search | Snap + canonicalize to corner nodes | Own diagnosis | `--no-snap` |
 
 **Majority add.** Self-consistency [4] samples several reasoning paths from one model and takes a majority vote.
-CDA* also votes, but its voters see different encodings of the map, which aims for errors that are less correlated.
+Quorum-A* also votes, but its voters see different encodings of the map, which aims for errors that are less correlated.
 The ensemble view [6] is that an ensemble improves on its members only to the extent they disagree (ambiguity).
 Graph-encoding studies [5] show that the way a graph is written as text changes LLM answers substantially, which is
-why the voters get different views.
+why the voters get different views. Voting needs voters that are decent AND diverse. Similar encodings (edge list, JSON
+graph) are excluded because their errors would be shared; ASCII grids are excluded (weak evidence). Combining these views as voters is our contribution and a hypothesis that the pilot (§11) tests.
 
 **Majority remove.** In MMP-A* [7] (arXiv:2601.01910v2), an LLM proposes waypoints and a vision-language model
 receives the map images. The VLM acts as a single judge, prompted once per map, and keeps or discards the numbered
 waypoints ("Do NOT create any new waypoints"). MMP-A* also damps the waypoint term of the heuristic by α^k (α = 0.7).
-CDA* keeps the search's heuristic as it is. It replaces the single judge with a majority of three checks, of which
+Quorum-A* keeps the search's heuristic as it is. It replaces the single judge with a majority of three checks, of which
 the vision judge is one.
 
 The stall fallback bounds the cost of a misleading plan. If waypoint guidance stalls, the search continues as
@@ -47,8 +50,8 @@ weighted A* with w = 2, exactly what LLM-A* does when it has no waypoints.
 ## 3. Algorithm
 
 ```
-CDA*(query):                                         # query = map + start/goal
-  # waypoint generation (llmastar/cdastar/)
+Quorum-A*(query):                                         # query = map + start/goal
+  # waypoint generation (llmastar/quorumastar/)
   answers = concurrently, for v in VIEWS:            # one call each, temperature 0
               v.ask(query, fewshot[v])               # abstains on API error / no image input / parse failure
   lists   = [canonicalize(a.points) if SNAP else a.points  for a in answers if not a.abstained]
@@ -56,7 +59,7 @@ CDA*(query):                                         # query = map + start/goal
   if REMOVE_QUORUM > 0:
       W   = majority_remove(W, query, REMOVE_QUORUM, vision = not NO_VISION)
   # search (llmastar/pather/): LLM-A*'s loop, unchanged, plus the stall hook (§7)
-  return CDAStar(stall_k=STALL_K).searching(query, waypoints=coordinates(W))
+  return QuorumAStar(stall_k=STALL_K).searching(query, waypoints=coordinates(W))
 ```
 
 `majority_add(lists, q)`:
@@ -88,20 +91,27 @@ mode, the request is resent without it. Parsing tries `json.loads` first (code f
 the last bracketed list in the text (`parse_waypoints` rule).
 - **text**: the repo's coordinate format (start, goal, horizontal barriers `[y, x1, x2]`, vertical barriers
   `[x, y1, y2]`). Answer: `[[x, y], ...]`.
-- **corners**: a visibility-graph encoding [8]. Corner cells: a horizontal barrier `[y, x1, x2]` gives
-  (x1−1, y±1) and (x2+1, y±1); a vertical barrier `[x, y1, y2]` gives (x±1, y1−1) and (x±1, y2+1). Only cells that
-  pass the waypoint filter (§1) are kept, deduplicated and numbered 0..N−1 in (x, y) order. The prompt lists the
-  nodes with their coordinates, plus S (start) and G (goal), and for each node the nodes it sees, i.e. those whose
-  segment has no `segment_collides`. It contains no barrier list. Answer: node ids `[3, 7, ...]`, mapped back to cells.
+- **corners**: the visibility graph [8] written as an adjacency list in the *incident* encoding [5] (best for most
+  prompting methods in [5]; adjacency lists beat grid layouts on mazes [10]). Corner cells: a horizontal barrier
+  `[y, x1, x2]` gives (x1−1, y±1) and (x2+1, y±1); a vertical barrier `[x, y1, y2]` gives (x±1, y1−1) and
+  (x±1, y2+1). Only cells that pass the waypoint filter (§1) are kept, deduplicated and numbered 0..N−1 in (x, y)
+  order; S (start) and G (goal) are extra nodes. Two nodes are joined when `segment_collides` is false for their
+  segment. The prompt has one line per node: its ID, its coordinates and the neighbors it can see, each with its
+  Euclidean distance, e.g. `Node 3 (12, 8): sees 0 (9.2), 7 (14.1), G (31.5)`. It contains no barrier list. Answer:
+  node IDs `[3, 7, ...]`, mapped back to cells.
+- **relations** (candidate, not in the default set): the walls in words, with where each can be passed, e.g. "A wall
+  at y = 10 blocks x = 0..25; you can pass it at x = 26 or beyond." One sentence per barrier, built from the barrier
+  list and its free ends. Answer: `[[x, y], ...]`. The pilot (§11) decides between this view and the image view.
 - **image**: a PNG of the map (matplotlib Agg, 20 px per cell, x and y axes labeled every 5 cells, grid every
   cell, y pointing up, barriers drawn as thick black segments, S and G marked). Answer: `[[x, y], ...]`. Zero-shot.
   If the model has no image input, the request fails and the view abstains (logged).
+- At most 4 LLM calls per query by default: 3 views + the vision judge (§4.5). Adding `relations` to `--views` adds a call.
 - A view **abstains** if its call errors or its answer has no parsable list. An abstaining view casts no vote.
 - `--cot` (off): each view first gives brief reasoning, then the JSON answer. `--roles` (off): each view gets its own
   system role. Both exist for the ablations in step 5.
 
 **4.2 Few-shot** (`--fewshot`, default `per-view`; `--n-shots` 3; `--fewshot-seed` 0). Examples come from a pool of
-self-generated maps (`llmastar/cdastar/fewshot.py`) and never from the evaluation maps. The pool uses the same grid
+self-generated maps (`llmastar/quorumastar/fewshot.py`) and never from the evaluation maps. The pool uses the same grid
 size and barrier format, with generator parameters fixed a priori (no fit to the benchmark's statistics). A pool map
 is accepted only if (a) its straight start–goal segment collides, and (b) its gold waypoints all snap to corner
 nodes. Gold waypoints: the A* path is string-pulled (greedy line-of-sight shortcutting with `segment_collides`), and
@@ -135,7 +145,7 @@ With `--no-snap`, points are used as proposed (floats included). Corner ids stil
 - "Number of views that answered" counts the views that did not abstain. If the image view abstains, an id backed by
   both text views is therefore fully supported.
 
-**4.6 Search**: `CDAStar(LLMAStar)`. The loop and f-value are inherited and unchanged.
+**4.6 Search**: `QuorumAStar(LLMAStar)`. The loop and f-value are inherited and unchanged.
 
 **4.7 Stall fallback** (`--stall-k` [2], 0 = off; `--stall-min` [20]). A target becomes active at the start, or when
 the search switches to it. Its budget is `k × max(stall_min, |ax − tx| + |ay − ty|)`, where a is the node being
@@ -148,7 +158,7 @@ A* with w = 2. The fallback fires at most once per query, and it is logged with 
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--views` | `text,corners,image` | voters, one call each |
+| `--views` | `text,corners,image` | voters, one call each; any subset of `text,corners,image,relations` |
 | `--fewshot` | `per-view` | `per-view` / `shared` / `none` / `paper` |
 | `--n-shots`, `--fewshot-seed` | 3, 0 | examples per view; pool seed |
 | `--cot`, `--roles` | off | CoT answers; per-view system roles |
@@ -162,12 +172,12 @@ A* with w = 2. The fallback fires at most once per query, and it is logged with 
 | `--temperature`, `--max-tokens` | 0, 2048 | sampling (existing flags) |
 | `--model`, `--base-url`, `--api-key` | `llama-3-8b-instruct`, `$OPENAI_BASE_URL` or `http://127.0.0.1:8000/v1`, `$OPENAI_API_KEY` | endpoint; the key is never logged or cached |
 
-The run name is `cdastar` for the defaults; non-default flags are appended in a fixed order as `-<variant>`, as
-for `dwastar` (e.g. `cdastar-novision`).
+The run name is `quorumastar` for the defaults; non-default flags are appended in a fixed order as `-<variant>`, as
+for `dwastar` (e.g. `quorumastar-novision`).
 
 ## 6. "All off" reproduces LLM-A*
 
-`--method cdastar --views text --fewshot paper --add-quorum 1 --no-vision --no-snap --stall-k 0`
+`--method quorumastar --views text --fewshot paper --add-quorum 1 --no-vision --no-snap --stall-k 0`
 - One call, with the same messages and sampling as LLM-A*, hence the same cache key: the run reuses the cached
   LLM-A* answers.
 - The original parser runs, voting is the identity (§4.4), and pruning cannot fire. One answering view means
@@ -189,7 +199,7 @@ self.closed_set.add(s)
 self._after_pop(s)          # new: LLMAStar._after_pop does nothing
 ```
 
-`CDAStar` overrides `_after_pop` (stall check, §4.7) and `_update_target` (it calls the parent's method, then
+`QuorumAStar` overrides `_after_pop` (stall check, §4.7) and `_update_target` (it calls the parent's method, then
 records the activation pop and node). With `--stall-k 0`, `_after_pop` returns immediately. A test checks that
 operation, storage and length match `LLMAStar` on a fixed set of maps, and `tests/test_astar.py` keeps checking
 859 / 802 / 53.46.
@@ -212,33 +222,49 @@ operation, storage and length match `LLMAStar` on a fixed set of maps, and `test
 - **A\*** and **weighted A\*** with w ∈ {1.5, 2, 3}: f = g + w · h. Implemented as `DWAStar(w0=w, decay=1)`, a constant
   weight, so no new search code is needed. It runs as `--method wastar --weight W`, with run names `wastar-w1.5`,
   `wastar-w2` and `wastar-w3`.
-- **LLM-A\*** (`--method llmastar --prompt standard|cot|repe`), rerun on the CDA* model.
+- **LLM-A\*** (`--method llmastar --prompt standard|cot|repe`), rerun on the Quorum-A* model.
 - **Model:** Qwen2.5-VL-7B-Instruct [9] (bf16, vLLM 0.11.0) for all views, the vision judge and the LLM-A* baseline.
   Llama-3-8B-Instruct stays for the Table 1 reproduction only. GPT-4o mini (`--model gpt-4o-mini --base-url
-  https://api.openai.com/v1`) comes later as the grading model.
+  https://api.openai.com/v1`) comes later as the final model.
 
 ## 10. Implementation map (proposed)
 
 ```
-llmastar/cdastar/
-  __init__.py     CDAStarGenerator (WaypointGenerator); registered as "cdastar" in llmastar/waypoints/REGISTRY
-  config.py       CDAConfig dataclass with every default above; add_cli_args(parser) / from_args(args); run-name variant
+llmastar/quorumastar/
+  __init__.py     QuorumAStarGenerator (WaypointGenerator); registered as "quorumastar" in llmastar/waypoints/REGISTRY
+  config.py       QuorumConfig dataclass with every default above; add_cli_args(parser) / from_args(args); run-name variant
   geometry.py     waypoint filter (mirrors LLMAStar._filter_valid_nodes), corner nodes, visibility, string pulling
   render.py       map -> PNG bytes (optionally with numbered waypoints)
-  views.py        TextView, CornersView, ImageView, PaperTextView: messages(query, examples) and parse(text)
+  views.py        TextView, CornersView, ImageView, RelationsView, PaperTextView: messages(query, examples) and parse(text)
   parsing.py      JSON answer parsing with regex fallback
   fewshot.py      seeded pool of generated maps, solved by A*, gold waypoints
   canonical.py    snap + canonicalize (§4.3)
   voting.py       majority add (§4.4)
   pruning.py      code / vision / support checks, majority remove (§4.5)
 llmastar/pather/llm_a_star/llm_a_star.py   + no-op _after_pop hook (§7), the only change to the search
-llmastar/pather/cda_a_star/cda_a_star.py   CDAStar(LLMAStar): stall fallback
+llmastar/pather/quorum_a_star/quorum_a_star.py   QuorumAStar(LLMAStar): stall fallback
 llmastar/model/chatgpt.py                  + api_key, image parts in messages (cache stores an image hash,
                                              not the bytes), JSON mode with fallback, errors returned, not raised
-llmastar/run.py                            + --method cdastar / wastar, CDA* flags, --weight, --api-key;
+llmastar/run.py                            + --method quorumastar / wastar, Quorum-A* flags, --weight, --api-key;
                                              LLM failures become logged rows, never a crash
-tests/test_cdastar_*.py                    mock-LLM unit tests per module + the §6 / §7 equivalence tests
+tests/test_quorumastar_*.py                    mock-LLM unit tests per module + the §6 / §7 equivalence tests
 ```
+
+## 11. Pilot protocol (agent.md step 4)
+
+Views are compared on **self-generated maps only** (the fewshot pool generator, a seed disjoint from the pool); the
+evaluation maps never choose a view or a default.
+- **Ground truth.** A waypoint w is *bad* if the shortest path through it is more than 5% longer than optimal:
+  `len(A*(start, w)) + len(A*(w, goal)) > 1.05 · len(A*(start, goal))`, with A* lengths as in `benchmark.py`. A waypoint
+  on a wall or unreachable counts as bad. Lengths are computed after §4.3 canonicalization.
+- **Solo quality** of a view: the fraction of its (non-abstained) waypoints that are not bad, and the share of queries
+  where at least one of its waypoints is good.
+- **Independence**: for views a and b, the share of bad waypoints of a whose canonical cell is also proposed by b.
+- **Third-view choice.** Candidates image and relations are scored against the fixed pair text + corners on solo quality
+  and on shared bad waypoints with those two; the better combination is chosen and the numbers recorded in agent.md
+  Decisions.
+- **Vision check** catch rate = bad waypoints removed by the vision judge / bad waypoints shown; false-alarm rate =
+  good waypoints removed / good waypoints shown.
 
 ## References
 
@@ -258,3 +284,6 @@ tests/test_cdastar_*.py                    mock-LLM unit tests per module + the 
 8. T. Lozano-Pérez, M. A. Wesley. *An Algorithm for Planning Collision-Free Paths among Polyhedral Obstacles.*
    Communications of the ACM 22(10):560–570, 1979.
 9. S. Bai et al. *Qwen2.5-VL Technical Report.* arXiv:2502.13923, 2025.
+10. W. Li, Y. Zhu, R. Das, P. Dube. *Do LLMs Build Spatial World Models? Evidence from Grid-World Maze Tasks.*
+    arXiv:2604.10690, April 2026 (preprint). Adjacency-list inputs gave far higher maze accuracy than visual grids
+    for Gemini-2.5-Flash with chain-of-thought; GPT-5-mini was much less sensitive to the format.

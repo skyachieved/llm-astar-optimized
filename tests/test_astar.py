@@ -25,6 +25,20 @@ def test_astar_matches_paper_figure1(fig1_query):
     assert result["path"][0] == tuple(fig1_query["start"]) and result["path"][-1] == tuple(fig1_query["goal"])
 
 
+def test_llmastar_search_matches_paper_figure1_with_paper_waypoints(fig1_query):
+    """Step 1b: the LLM-A* loop without any LLM, fed the waypoints read off the paper's Fig. 1.
+
+    The readings are approximate; only (24, 16), the right end of the long wall, affects the result. Storage and
+    length match the paper exactly. Operation is deliberately not asserted: an external re-implementation gives
+    90 against the paper's 140 for every reading within +-1-2 cells, a known discrepancy (REPRODUCTION.md).
+    """
+    result = LLMAStar().searching(fig1_query, waypoints=[(44, 24), (24, 16), (5, 6)])
+    assert result["valid"]
+    assert result["storage"] == 235
+    assert result["length"] == pytest.approx(53.46, abs=0.01)
+    assert (24, 16) in result["llm_output"]
+
+
 def test_search_does_not_mutate_query(fig1_query):
     before = copy.deepcopy(fig1_query)
     AStar().searching(fig1_query)

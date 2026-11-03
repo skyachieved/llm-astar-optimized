@@ -1,280 +1,304 @@
-# agent.md — project memory for LLM-A* / Clear Democratic A*
+# agent.md — Quorum-A*: Multi-View LLM Consensus for Robust Heuristic Search in Path Planning
 
-## Goal
-Implement and evaluate Clear Democratic A* (CDA*), a waypoint generator for LLM-A* (arXiv 2407.02511, Table 1
-reproduced in this repo). Three map views vote on waypoints, waypoints are pruned by majority objection, and a stall
-fallback bounds bad plans. The LLM-A* search loop stays unchanged; CDA* is compared against LLM-A* and weighted A*.
+## Mission
+You are a senior software engineer and an ML researcher on this repository (a fork of the official LLM-A* repo; Table 1
+of the LLM-A* paper, arXiv 2407.02511, is already reproduced). Two jobs, in this priority order when they conflict:
+1. **Build** Quorum-A*: a waypoint generator for LLM-A* with production-quality code and research-quality experiments.
+2. **Teach** the user the architecture while you build it. The user has to understand it, so every component
+   must be something they can explain, justify and defend (see "Teaching protocol").
+
+This file is the single source of truth and is loaded into every session. It is a prompt: stable content first, project
+state last. It holds the *what, why and how to work*; METHOD.md holds the full spec (pseudocode, defaults).
+
+## Hard rules (never bend; details under Constraints)
+1. The LLM-A* search loop is the baseline: never change it. Quorum-A* lives in the waypoint-generation step, behind flags.
+   The only allowed edit to the loop is one no-op hook (`_after_pop`, METHOD.md §7).
+2. Every component switches off independently, and "all off" reproduces LLM-A* exactly (same messages, same results).
+3. Never change metric definitions. `tests/test_astar.py` (A* on map 1 / start_goal[0] = 859 / 802 / 53.46) always passes.
+4. Never tune on the evaluation maps; never commit secrets; never crash on an LLM failure; assume nothing about the model.
+5. Claude only reads and edits files. The user runs every command.
+
+## Reading guide
+agent.md (this file) → METHOD.md (spec, section numbers are cited as §n) → REPRODUCTION.md (baseline facts, deviations)
+→ code. Do not copy METHOD.md into this file; cite it. Facts only: every number cites its output file.
+
+## Session protocol (every session, no exceptions)
+1. Start: read this file fully, then REPRODUCTION.md and METHOD.md. Ask the user to run `! git log --oneline -20`
+   (the `!` prefix puts the output in the chat). Summarize the project state in 5 lines, say what you will do next, and
+   wait for the user's OK.
+2. Work on exactly one item of "Next steps" at a time. Never start an item marked done or blocked.
+3. At the end of every step (not just the session): update this file, give a one-line commit message, ask the
+   user the step's check question (Teaching protocol).
+4. If this file and the code disagree, the code wins: fix this file and note it in the Log.
+5. Keep this file under ~300 lines where possible: condense old Log entries; mark superseded Decisions instead of
+   deleting them. No fixed schedule: track progress here; if progress looks too slow to finish, tell the user and decide
+   together what to cut (step 5 ablations and step 6 first).
+6. **Save progress.** When the user says "save progress" (or "end session", "wrap up"), stop and update this file:
+   Current status (done, half-done and exactly where it stopped, uncommitted changes), Next steps (the very next action
+   first), Open questions, and a dated Log entry; then give a one-line commit message. The next session must be able to
+   continue from this file alone. Remind the user to say "save progress" when a step finishes, before switching tasks,
+   and when the conversation is getting long.
 
 ## Research rationale
-Thesis: LLM-A*'s gain is mostly heuristic inflation (no waypoints = weighted A*, w=2: 34.3% ops vs. the paper's 44.6–57.4%). Real LLM value needs voters with independent errors; a fallback bounds the damage when they aren't.
+Hypothesis (untested until `wastar-w2` exists): LLM-A*'s gain is mostly heuristic inflation, not waypoint quality (an external simulation gives weighted A*, w = 2, about 34% ops against the paper's 44.6–57.4%). In our own run 25.40% of `llmastar_standard` queries had no usable waypoint and already ran as weighted A* (w = 2). If true, real LLM value needs voters with independent errors, and a fallback bounds the damage when they have none.
 
 | Weakness diagnosed | Component | Source | Flag |
 |---|---|---|---|
 | One LLM guess can mislead the search | Majority add (≥2 of 3) | Self-consistency (Wang et al. 2023) | --add-quorum |
-| Same-model voters share mistakes | One view per voter (text/corners/image) | Talk like a Graph (Fatemi et al. 2024); ensemble diversity (Krogh & Vedelsby 1995) | --views |
+| Same-model voters share mistakes | One view per voter: text, corners (visibility-graph incident encoding), image; candidate: relations | Talk like a Graph (Fatemi et al. 2024); Li et al. 2026; ensemble diversity (Krogh & Vedelsby 1995) | --views |
 | Single, delete-only vision judge (MMP-A*) | Majority remove (code/vision/support) | MMP-A* (2026), extended | --remove-quorum, --no-vision |
 | Bad plans blow up the worst case | Stall fallback to weighted A* | Weighted A* (Pohl 1970) | --stall-k (0 = off) |
 | Float/never-hit waypoints drag the search | Snap + canonicalize to corner nodes | Own diagnosis | --no-snap |
 
-Rules that follow:
-- The shared search loop is the baseline: never change it. Every new behavior lives in the waypoint-generation step or behind a flag.
-- Every component must be switchable off independently, and "all off" (text view only, one call, no voting, no pruning, no snap, no fallback) must reproduce LLM-A* exactly.
+View choice: voting needs voters that are decent AND diverse. Similar encodings (edge list, JSON graph) are excluded because
+their errors would be shared; ASCII grids are excluded (weak evidence). Combining these views as voters is our
+contribution, a hypothesis the pilot tests (step 4), not a result.
+
+Reporting rules (the structural rules are the Hard rules above):
 - Always report against weighted A* (w = 1.5, 2, 3), not only LLM-A*.
 - Log per query: each view's raw output, votes, removals, fallback fired, calls, tokens, latency.
 
-> Note (2026-10-29): the 34.3% above comes from an external simulation, not from this repo. It must not appear in
-> METHOD.md or the README until the `wastar` runs exist; then cite those files (Decisions).
+> The 34.3% is from an external simulation, not this repo. Do not use it in METHOD.md or the README until our `wastar`
+> runs exist; then cite those files.
+
+## Architecture
+**In one paragraph.** LLM-A* asks one LLM for waypoints and trusts it. Quorum-A* asks several voters that see the map
+in *different encodings* (coordinate text, a visibility-graph adjacency list, an image), keeps a waypoint only if a quorum
+proposes it, deletes waypoints that a quorum of independent checks distrusts, and hands the surviving list to the
+unchanged LLM-A* search. If the guidance stalls during the search, a fallback drops the waypoints and the search
+continues as weighted A* (w = 2). Voting needs errors that are not shared, hence different views; the fallback bounds
+the damage when they are shared anyway.
+
+```
+query (map + start/goal)
+   ├─► V1 text     ─┐  one LLM call each, temperature 0, concurrent; a view ABSTAINS on error,
+   ├─► V2 corners  ─┤  unsupported input (e.g. no image) or unparsable answer
+   ├─► V3 image    ─┘  (candidate V4 relations: walls in words; --views picks any subset;
+                       default text,corners,image until the pilot decides)
+                    ▼
+   canonicalize: snap to a free cell (±2), then to the nearest corner node (≤3)      --no-snap
+                    ▼
+   majority ADD: keep cells proposed by ≥ q views; order by mean position            --add-quorum 2
+                    ▼
+   majority REMOVE: per waypoint 3 checks — code (both path segments hit walls),
+   vision (judge call on the image), support (fewer votes than answering views);
+   remove if ≥ q checks object; an abstaining check counts as no objection           --remove-quorum 2, --no-vision
+                    ▼
+   waypoint list ─► LLM-A* search, UNCHANGED ─► operation / storage / length / path
+                      └─ stall hook: pops since target active > k·max(20, Manhattan) ⇒ drop waypoints, target = goal   --stall-k 2
+```
+
+| # | Component | Fixes (rationale row) | Input → output | Module (planned) | Flag | Proof |
+|---|---|---|---|---|---|---|
+| 1 | Views | shared mistakes | query → points (or node IDs) per view | `quorumastar/views.py` | `--views`, `--fewshot` | mock-LLM tests per view |
+| 2 | Canonicalize | float / never-hit waypoints | points → cells | `quorumastar/canonical.py` | `--no-snap` | snap unit tests |
+| 3 | Majority add | one guess misleads | lists → voted list + support | `quorumastar/voting.py` | `--add-quorum` | vote tests; identity at q = 1 |
+| 4 | Majority remove | single delete-only judge | list → pruned list | `quorumastar/pruning.py` | `--remove-quorum`, `--no-vision` | one test per check |
+| 5 | Stall fallback | bad plans, worst case | search state → goal-only target | `pather/quorum_a_star/` | `--stall-k` | identical metrics at k = 0 |
+| 6 | Generator | glue + logging | query → `WaypointResult` | `quorumastar/__init__.py` | `--method quorumastar` | "all off" = LLM-A* test |
+
+**Data contracts.** *Query*: dict with `start, goal, range_x, range_y, horizontal_barriers` (`[y, x1, x2]`),
+`vertical_barriers` (`[x, y1, y2]`) plus `map_id, sg_idx`. *Cell*: `(x, y)`; a canonical waypoint id *is* its cell, so
+coordinate answers and corner-id answers vote on the same key. *Generator*: `generate(query) -> WaypointResult(waypoints,
+parse_ok, raw)`, thread-safe, never raises. *Result keys of the search*: `operation, storage, length, valid, path,
+visited, llm_output`.
+
+**Worked example** (invented numbers, for teaching and as a test oracle). Views: text proposes A, B, C; corners
+proposes A, B; image proposes A, B, D (cells A=(10,12), B=(25,20), C=(40,8), D=(5,25)).
+Add, quorum 2: A has 3 votes, B 3, C 1, D 1 ⇒ keep A, B. Position = (i+1)/(n+1): A = (1/4, 1/3, 1/4) mean 0.28,
+B = (2/4, 2/3, 2/4) mean 0.56 ⇒ order A, B. Remove, quorum 2, on path S–A–B–G: for B, code check fires (S→A is fine but
+A→B and B→G both hit walls ⇒ objects), vision judge says "remove 2" ⇒ objects, support 3/3 ⇒ no objection. Two objections
+≥ 2 ⇒ B is removed. Final waypoints: [A]. LLM-A* then searches S→A→G.
+
+**Glossary.** *waypoint / target*: an intermediate cell the search is steered through. *corner node*: a free cell diagonal
+to a barrier end, where a shortest path can bend; *visibility graph*: corner nodes joined when the straight segment
+between them crosses no barrier; the corner view writes it as an *incident* adjacency list (one line per node: ID,
+coordinates, visible neighbors with Euclidean distances). *quorum*: minimum number of agreeing voters. *abstain*: a voter casts no vote and no
+objection. *snap*: move a point to the nearest valid cell. *stall*: the search spends too many pops on one target.
+*weighted A\** (w): f = g + w·h; larger w expands fewer nodes but loses optimality. *operation*: heap pops (duplicates
+included); *storage*: `len(g)`; *length*: sum of Euclidean steps.
+
+## Teaching protocol
+The user must be able to explain and defend each component. Teach at step boundaries; do not dump code unexplained.
+- **Lesson card** (≤12 lines, before coding a component): (1) the weakness it fixes (name the rationale row); (2) the idea
+  in one sentence; (3) the mechanism as ≤6 lines of pseudocode or by tracing the worked example with its numbers; (4) how
+  it can fail, including the negative result to expect; (5) where it lives: file and test name; (6) its source paper.
+- **Plain language, define on first use** (use the Glossary). Prefer one concrete trace over an abstract paragraph.
+- **Predict, then measure**: before any experiment, state the hypothesis and ask the user to predict the outcome; after
+  it, explain the result, including negative ones, without spin.
+- **Check question** at the end of every step: one question answerable from the lesson card (e.g. "why does a corner view
+  help when the text view is wrong?"). If the answer is wrong, re-explain with a different example before moving on.
+- **Explain every diff** in 3–5 plain sentences: what changed, why, what test proves it.
+- Never claim more than the evidence supports. In particular the reproduction is faithful for Table 1 but not for the
+  paper's scalability magnitudes (see Results); do not describe the code as "verified by the paper".
+
+## Build protocol (one step)
+1. Restate the step and its acceptance test. 2. Write the test first (mock LLM, no network). 3. Smallest reviewable diff,
+one logical change per commit, on a feature branch. 4. Give the user the exact commands (env, flags, expected output) and
+wait. 5. Update this file. 6. Commit message (one line), then the check question.
+**Definition of done:** tests pass on Python 3.11 with only `pip install -r requirements.txt`; the Hard rules still hold;
+the component's off-switch gives the baseline result; METHOD.md matches the code; no secret, no `scripts/` reference in a
+tracked file; this file updated.
 
 ## Constraints
-**Session protocol (every session, no exceptions)**
-1. Start: read this file fully, then REPRODUCTION.md and METHOD.md. Ask the user to run `! git log --oneline -20`
-   (the `!` prefix puts the output in the chat). Summarize the state in 5 lines, then wait for OK.
-2. Work on exactly one Next-steps item at a time. Never start an item marked done or blocked.
-3. At the end of every step (not just the session), update this file, then give a one-line commit message.
-4. If this file and the code disagree, the code wins: fix this file and note it in the Log.
+**Working with the user.** The user runs every command; give exact copy-pasteable commands, the conda env (`llmastar`
+for the project, `vllm` for the model server) and what to report back, then wait. The user cannot reliably copy terminal
+output: prefer `! <cmd>` for short checks; give long commands as a script in `scripts/` (git-ignored, local only; env
+guard, writes `logs/<name>.log`, which Claude then reads). Shared GPU server, everything under /home/minho; the user
+reserves the GPU and sets `$CUDA_VISIBLE_DEVICES`. Local LLM = vLLM's OpenAI-compatible server (`scripts/serve_local.sh`);
+the same client works with GPT-4o mini by changing only `--model` / `--base-url`. Git: `origin` is SSH, plain `git push`
+works from the user's shell (not from Claude's, which has no SSH agent).
 
-**Working with the user**
-- Claude only reads and edits files; the user runs every command. For each step, give exact copy-pasteable
-  commands, the conda env (`llmastar` for the project, `vllm` for the model server) and what to report back. Then wait.
-- The user cannot reliably copy terminal output. Prefer `! <cmd>` for short checks. Give long or multi-line commands
-  as a script in `scripts/` (git-ignored, local only) that has an env guard and writes `logs/<name>.log` (git-ignored).
-  Claude then reads `logs/` and `outputs/` directly.
-- Shared GPU server: everything lives under /home/minho, and the user reserves the GPU and sets `$CUDA_VISIBLE_DEVICES`.
-  The local LLM is vLLM's OpenAI-compatible server (`scripts/serve_local.sh`). The same client must work with
-  GPT-4o mini by changing only `--model` / `--base-url`.
+**Target environment.** Ubuntu 22.04, Python 3.11, only `pip install -r requirements.txt`, no GPU. Key from `api_key`,
+`openai.api_key` or `OPENAI_API_KEY`. `LLMAStar(llm='gpt', prompt=...)` must keep working. Never require image input,
+JSON mode, `seed` or `temperature` (unknown robustness LLMs).
 
-**Grader environment**: Ubuntu 22.04, Python 3.11, only `pip install -r requirements.txt`, no GPU, no API keys provided.
-The key comes from `OPENAI_API_KEY` (optional `--api-key`). Never crash on LLM failures.
-
-**TA clarifications (2026-11-03)**
-1. Evaluation uses the baseline code's LLM connection method and runs our code with the instructions and scripts in
-   our README. So the README is the grading interface, and the baseline mechanism must keep working:
-   `LLMAStar(llm='gpt', prompt=...)`, with the key from `openai.api_key` or `OPENAI_API_KEY`. CDA* uses the same connection.
-2. No time or memory limits for now; a timeout may be announced later.
-3. The additional robustness LLMs are not disclosed. Assume nothing about a model: it may lack image input, JSON mode,
-   `seed` or `temperature`.
-4. No API credits. Any LLM may be used during development; the final evaluation uses the designated backbone model.
-5. Table 1 may use another LLM, but the experimental setup and the number of evaluation samples (all 1,000 queries)
-   must match the paper.
-
-**Never do**
-- Tune or pick defaults on the evaluation maps (`dataset/environment_50_30.json`) or on the held-out harder split.
-  Few-shot examples come only from self-generated maps.
-- Change the shared LLM-A* search loop or its f-value. New behavior goes in waypoint generation or behind a flag
-  whose off state is identical to the baseline. The one allowed change is the no-op `_after_pop` hook (METHOD.md §7).
-- Change metric definitions: operation = heap pops including duplicates (`len(CLOSED)`), storage = `len(g)`,
-  length = sum of Euclidean steps.
-- Break `LLMAStar(...).searching(query=...)` or its result keys (`operation, storage, length, valid, path, visited,
-  llm_output`).
-- Break `tests/test_astar.py::test_astar_matches_paper_figure1` (A* on map 1 / start_goal[0] = 859 / 802 / 53.46).
-- Commit secrets, tokens, API keys or personal data; reference `scripts/` from tracked files; describe the project
-  as making A* "cheaper". The framing is: better waypoints lead to more efficient search, at the cost of more LLM calls.
-
-**Engineering / research**: small reviewable diffs, one logical change per commit, on a feature branch (main is the
-only long-lived branch). State the hypothesis before each experiment, report negative results honestly, and cite
-sources in METHOD.md and docstrings.
+**Never do.** Tune defaults on `dataset/environment_50_30.json` or on the held-out harder split (few-shot examples come
+only from self-generated maps). Change the search loop or f-value beyond the no-op hook. Change metric definitions
+(operation = heap pops incl. duplicates = `len(CLOSED)`, storage = `len(g)`, length = sum of Euclidean steps). Break
+`LLMAStar(...).searching(query=...)` or its result keys. Commit secrets, tokens or personal data. Reference `scripts/`
+from tracked files. Describe the project as making A* "cheaper": the framing is better waypoints leading to more
+efficient search, at the cost of more LLM calls.
 
 ## Current status
-- Phase: CDA*. The LLM-A* reproduction (Table 1 + Figs. 1–3) is done (commits 823a892, a536281 on main).
-- Last completed: Step 1 (agent.md, METHOD.md with the spec, defaults, citations and module layout), 2026-10-29.
-  Committed directly to main on 2026-10-30, together with the user's pending README.md change.
-- Waiting on the user: run `scripts/get_qwen_vl.sh` (checks Qwen2.5-VL support in vLLM 0.11.0, then downloads the
-  model), then serve it with `scripts/serve_local.sh qwen2.5-vl`.
-- 2026-11-03: the TAs answered (Constraints). A step 2.0 "grader-facing interface" is proposed below and waits for
-  the user's OK; do not start it before that. The comparison figures (ours vs. paper vs. A*) are done and committed:
-  `llmastar/figures/fig4_vs_paper.py` (Table 1 averages, and the Fig. 1 query) and `fig5_scalability_vs_paper.py`
-  (Fig. 3 with 3 lines per panel); outputs in `outputs/figures/fig4_*`, `fig5_*`.
-- Next: Step 2.0 (once approved), then 2a.
+- Phase: Quorum-A*. Reproduction (Table 1, Figs. 1–3, ours-vs-paper figures, 92bf3da) and step 1 are done.
+- Step 1b: test written (`tests/test_astar.py`), waiting for the user's `pytest` run; then the REPRODUCTION.md note.
+- Waiting on the user: `scripts/get_qwen_vl.sh`, then `scripts/serve_local.sh qwen2.5-vl`.
+- Next: finish 1b, then 2.0, then 2a.
 
 ## Next steps
-- [x] 1. Read the repo and REPRODUCTION.md; write agent.md (with the Table 1 results and their paths) and METHOD.md
-      (pseudocode, all defaults, citations). Propose the module layout. *(2026-10-29; layout = METHOD.md §10)*
-- [ ] 2.0 Grader-facing interface *(PROPOSED 2026-11-03, awaiting the user's OK; scope in the Log entry of that date)*.
-      One commit each:
-  - [ ] a. Connection: `ChatGPT` takes the key from `api_key` arg, else `openai.api_key`, else `OPENAI_API_KEY`
-        (passed explicitly); `LLMAStar(llm='gpt')` keeps working and uses the paper's GPT prompt set.
-  - [ ] b. Robust client: per-call timeout 60 s with 0 retries by default, drop-and-retry on rejected sampling
-        parameters, errors returned not raised (never cached), `--stop-newline` flag.
-  - [ ] c. `PromptWaypointGenerator` / runner: an LLM failure becomes "no waypoints" plus a logged `llm_error`.
-  - [ ] d. Tests with a mock text-only model (no network).
-  - [ ] e. README rewritten as the grading interface; `table1` wrapper; `--dataset` accepts a single query file.
-  - [ ] f. REPRODUCTION.md: setup deviation for `stop="\n"`, and Table 1 reported both ways.
-- [ ] 2. Shared infrastructure: views, canonicalization, voting, pruning, safety net, each with pytest unit tests using
-      a mock LLM (no network), including a test that "all off" reproduces LLM-A* exactly. Add a GitHub Actions
-      workflow that runs pytest on Python 3.11 with only `pip install -r requirements.txt`, mirroring the grader.
-      Sub-items, one commit each:
-  - [ ] a. `_after_pop` no-op hook + `CDAStar` stall fallback; test: identical operation/storage/length with
-        `stall_k=0` on a fixed set of maps (METHOD.md §7).
-  - [ ] b. `--method wastar --weight W` (= `DWAStar(w0=W, decay=1)`); test: w = 1 equals A*.
-  - [ ] c. Client: image message parts (cache stores an image hash), JSON mode with fallback. *(api key, error
-        handling and sampling-parameter fallback moved to 2.0 a–c)*
-  - [ ] d. `llmastar/cdastar/` modules (METHOD.md §10), each with mock-LLM tests, including the §6 "all off" test
-        (same messages and cache key as `PromptWaypointGenerator`, same search results as `LLMAStar`).
-  - [ ] e. CI: pin `.github/workflows/test.yml` (exists, `ubuntu-latest`) to `ubuntu-22.04`.
-- [ ] 3. CDA* end-to-end behind the runner: `python -m llmastar.run --method cdastar ...`.
-  - [ ] Baselines on qwen2.5-vl-7b-instruct, all 1,000 maps: astar, wastar w = 1.5 / 2 / 3, llmastar standard / cot /
-        repe. Also wastar ×3 under `outputs/llama-3-8b-instruct/`. Record the files in Results.
-  - [ ] All-off end-to-end check: 0 new LLM requests, metrics equal to `llmastar_standard.csv`.
-- [ ] 4. Pilot (50 maps, local model). Hypotheses and measurements: (i) each view's solo waypoint quality; (ii) how
-      often views share the same wrong waypoint; (iii) vision check catch and false-alarm rates, ground truth =
-      waypoints > 3 cells from the A* path's corners; (iv) CDA* vs. LLM-A* vs. weighted A* (w = 1.5, 2, 3). Write a
-      go/no-go decision here and wait for the user's approval.
-- [ ] 5. Full runs (1,000 maps) and ablations: each view alone vs. all three, add/remove quorums, vision on/off, snap
-      on/off, safety net on/off, few-shot shared / per-view / none, CoT, roles.
-- [ ] 6. Harder generated maps (mazes, more walls, 2–3× size; fixed seed; held-out split never used to pick defaults),
-      and a second model for generalization.
-- [ ] 7. Figures in outputs/figures/ (ops vs. path-length trade-off with the weighted-A* frontier; ablation bars;
-      failure-case visualizations) and a cost table (calls, tokens, time per query).
-- [ ] 8. Final checks: clean Python 3.11 install from requirements.txt, README quickstart, no secrets in the repo,
-      METHOD.md matches the code.
+- [x] 1. Read the repo and REPRODUCTION.md; write agent.md and METHOD.md. *(2026-11-03; layout = METHOD.md §10)*
+- [ ] 1b. *(approved 2026-11-03)* Verify the LLM-A* search without an LLM: feed it the waypoints read off the paper's
+      Fig. 1 and expect 140 / 235 / 53.46. An exact match verifies the loop independent of the model.
+- [ ] 2.0 *(approved 2026-11-03, after 1b)* User-facing interface, one commit each:
+  - [ ] a. Key from `api_key`, else `openai.api_key`, else `OPENAI_API_KEY`; `LLMAStar(llm='gpt')` keeps working and
+        uses `prompt_set="gpt"` (chat completions only).
+  - [ ] b. Client: 60 s per-call timeout; retry 429 / 5xx / timeouts up to 3× with exponential backoff; on a rejected
+        parameter, drop it and retry once; never retry other 4xx; errors returned, never raised or cached; separate
+        `--stop-newline` (original `stop="\n"`) and `--max-tokens` flags; "original setup" runs use both
+        (stop "\n", max_tokens 100).
+  - [ ] c. Generator / runner: an LLM failure becomes "no waypoints" plus an `llm_error` column and a printed count.
+  - [ ] d. Tests with a mock text-only model. e. README as the user-facing interface (install, key, run on a map/query file,
+        reproduce Table 1 with one command, output format); `--dataset` accepts a single query file.
+  - [ ] f. REPRODUCTION.md: `stop="\n"` / `max_tokens` as setup deviations; Table 1 reported both ways.
+- [ ] 2. Shared infrastructure, each with mock-LLM pytest tests and a CI workflow (Python 3.11, requirements.txt only):
+  - [ ] a. `_after_pop` hook + `QuorumAStar` stall fallback; identical metrics at `stall_k=0` on a fixed set of maps.
+  - [ ] b. `--method wastar --weight W` (= `DWAStar(w0=W, decay=1)`); w = 1 equals A*.
+  - [ ] c. Client: image message parts (cache stores an image hash), JSON mode with fallback.
+  - [ ] d. `llmastar/quorumastar/` modules (METHOD.md §10) + the §6 "all off" test (same messages and cache key as
+        `PromptWaypointGenerator`, same results as `LLMAStar`). e. CI pinned to `ubuntu-22.04`.
+- [ ] 3. End to end: `python -m llmastar.run --method quorumastar ...`. Baselines on qwen2.5-vl-7b-instruct (all 1,000):
+      astar, wastar w = 1.5 / 2 / 3, llmastar standard / cot / repe; wastar ×3 also on llama-3-8b-instruct. All-off run:
+      0 new LLM requests and metrics equal to `llmastar_standard.csv`.
+- [ ] 4. Pilot (50 maps, local model). Ground truth: a waypoint is "bad" if the shortest path through it (start→wp→goal,
+      by A*) is > 5% longer than optimal (METHOD.md §11). (i) each candidate view's solo waypoint quality (text, corners,
+      image, relations), on self-generated maps only, never the evaluation maps; (ii) how often each shares the same bad
+      waypoint with the text and corner views; choose the third view (image or relations) by best combined quality and
+      independence, and record the decision and its numbers under Decisions; (iii) vision check catch / false-alarm
+      rates; (iv) Quorum-A* vs. LLM-A* vs. weighted A*. Write a go/no-go decision here and wait for the user.
+- [ ] 5. Full runs (1,000) and ablations: each view alone vs. all; quorums; vision; snap; fallback; few-shot
+      shared / per-view / none; CoT; roles.
+- [ ] 6. Harder generated maps (mazes, more walls, 2–3× size; fixed seed; held-out split never used for defaults) and a
+      second model.
+- [ ] 7. Report support: export what the report needs from `outputs/` only: Table 1 vs. paper; Quorum-A* vs. A*, LLM-A*
+      and weighted A* (ops vs. length trade-off with the weighted-A* frontier); ablation bars; failure cases and failed
+      experiments, explained; cost table (calls, tokens, seconds per query); reproducibility appendix (models, decoding
+      settings, prompts, hardware, commands). Every number cites its output file.
+- [ ] 8. Report drafts *(proposed)*: outline per required section, then DRAFT text clearly marked; the user rewrites it.
+      Check that every sentence describes what the code does (report–code consistency) and every reference is verified.
+- [ ] 9. Submission package: zip from a clean checkout; fresh Python 3.11 env with only `requirements.txt`; run the README
+      commands exactly as written; confirm the I/O formats match the baseline repo (query dict in, result keys out) and a
+      an unseen map file runs unchanged; scan for secrets and `scripts/` references; METHOD.md matches the code; every
+      number in the report draft cites an output file. Ask the user for the package name.
+- [ ] 10. Work record: at each step end, add a dated Log line (what, files, commit) so the user can describe their own
+      work from artifacts.
 
-## Decisions
-- 2026-10-29 · LLM-A* consumes a waypoint list; generators plug in via `llmastar/waypoints/REGISTRY` · new methods
-  never touch the search (REPRODUCTION.md, "Swappable waypoint step").
-- 2026-10-29 · Decoding: temperature 0, `max_tokens` 2048, no stop sequence; every response cached in `.cache/llm/`,
-  keyed by model, base URL, messages and sampling · reproducible reruns at no cost (REPRODUCTION.md deviation 2).
-- 2026-10-29 · The Dynamic WA* row is the `dwastar` reading (w = max(1, 2·0.99^pops), OPEN re-keyed) · within
-  1.5 points of the paper (REPRODUCTION.md deviation 4).
-- 2026-10-29 · `scripts/` is git-ignored and local only. Figure code lives in `llmastar/figures/`
-  (`python -m llmastar.figures`), not `scripts/figures/` as the CDA* brief says · the user wants no helper scripts online.
-- 2026-10-29 · main is the only branch on origin. CDA* work goes on the feature branch `cdastar`, one commit per step
-  or sub-step · small reviewable diffs. 2026-10-30: the step 1 docs went directly to main (user's choice; docs only).
-  Create `cdastar` from main when step 2 starts.
-- 2026-10-29 · (Q1) The rationale's 34.3% (weighted A*, w = 2) comes from an external simulation. Add `wastar` runs
-  (w = 1.5, 2, 3, all 1,000 maps) under `outputs/` and cite those files; the number is not used in METHOD.md or the
-  README until then · user decision.
-- 2026-10-29 · (Q2) `--fewshot paper` makes the text view send LLM-A*'s exact messages (no JSON mode) and pass its
-  parsed waypoints through unchanged. "All off" = `--views text --fewshot paper --add-quorum 1 --no-vision --no-snap
-  --stall-k 0`. A test shows identical searches to `LLMAStar`, reusing the cached answers · user decision; METHOD.md §6.
-- 2026-10-29 · (Q3) One no-op hook, `_after_pop(s)`, in `LLMAStar.searching` right after a pop. `CDAStar` uses it for
-  the stall fallback. Test: identical operation/storage/length with `--stall-k 0` on a fixed set of maps · user
-  decision; METHOD.md §7.
-- 2026-10-29 · (Q4) One VLM, Qwen2.5-VL-7B-Instruct (bf16, served name `qwen2.5-vl-7b-instruct`), for all three views,
-  the vision judge and the LLM-A* baseline rerun. Llama-3-8B is for the Table 1 reproduction only, and GPT-4o mini
-  comes later as the grading model. vLLM 0.11.0's supported-models page lists `Qwen2_5_VLForConditionalGeneration`
-  (T + I + V, V1 ✅); `scripts/get_qwen_vl.sh` checks the installed version too · user decision.
-- 2026-10-29 · (Q5) MMP-A* = Ha, Ta, Phan, Doan, Dao, Tran, Binh, "MMP-A*: Multimodal Perception Enhanced Incremental
-  Heuristic Search on Path Planning", arXiv:2601.01910 (v2, 22 Jan 2026), code github.com/langkhachhoha/MMP-ASTAR.
-  Checked against arxiv.org/html/2601.01910v2: a single VLM judge, prompted once per map, keeps or discards numbered
-  waypoints and never adds any; the waypoint heuristic term decays by α^k (α = 0.7). Qwen2.5-VL is among its VLMs.
-- 2026-11-03 · (TA1) Keep the baseline connection unchanged: `LLMAStar(llm='gpt', prompt=...)` must work, and the key
-  is read from `openai.api_key` or `OPENAI_API_KEY`, passed explicitly to the openai>=1.x client. CDA* uses the same
-  client. Model name and base URL stay configurable (`--model`, `--base-url`, `OPENAI_BASE_URL`) · TA answer.
-- 2026-11-03 · (TA1) The README is the grading interface: one entry point and exact commands for install, key, running
-  CDA* on a query/map file, and reproducing Table 1, each working in a fresh Python 3.11 env with only
-  `pip install -r requirements.txt` · TA answer + user instruction.
-- 2026-11-03 · (TA3) Never require image input, JSON mode, `seed` or `temperature`. The image view and vision check
-  abstain quietly if images are rejected, parsing works without JSON mode, and the text and corners views work alone.
-  Tested with a mock text-only model · user instruction.
-- 2026-11-03 · (TA2) Per-call timeout 60 s and at most 4 LLM calls per query by default (3 views + 1 vision judge). On
-  timeout or error the voter abstains; if nothing is left the search runs with no waypoints. Wall time per query is
-  logged. No other time or memory limit applies for now · user instruction.
-- 2026-11-03 · (TA5) Reported Table 1 uses all 1,000 queries, the paper's prompts and metrics. `stop="\n"` (used by the
-  original GPT client) stays removed for the reported run because it would cut multi-line CoT/RePE answers; this is
-  recorded in REPRODUCTION.md as a setup deviation, and a flag restores it so Table 1 can be reported both ways ·
-  user instruction.
-- 2026-11-03 · (TA4) Development may use any LLM; the final evaluation uses the designated backbone, so nothing may
-  depend on one model's features · TA answer.
-- 2026-10-29 · Weighted A* is `DWAStar(w0=w, decay=1)` (constant weight), not a new search · no new search code.
-- 2026-10-29 · Canonical waypoint id = its (snapped) cell, so coordinate and node-id views vote directly · METHOD.md §4.3.
+## Decisions (date · decision · reason; superseded ones are marked, never deleted)
+- 2026-10-29 · Generators register in `llmastar/waypoints/REGISTRY`; the search consumes a waypoint list · swappable step.
+- 2026-10-29 · Temperature 0, `max_tokens` 2048, cache in `.cache/llm/` by model, URL, messages, sampling · free reruns
+  (REPRODUCTION.md deviation 2). `scripts/` is git-ignored; figure code is in `llmastar/figures/`.
+- 2026-10-29 · The Dynamic WA* row is the `dwastar` reading (w = max(1, 2·0.99^pops), OPEN re-keyed), within 1.5 points of
+  the paper (deviation 4). Weighted A* = `DWAStar(w0=w, decay=1)`; its rationale number (34.3%) is external, so add
+  `wastar` runs w = 1.5 / 2 / 3 and cite them · user.
+- 2026-10-29 · `--fewshot paper`: the text view sends LLM-A*'s exact messages (no JSON mode) and passes waypoints through;
+  "all off" = `--views text --fewshot paper --add-quorum 1 --no-vision --no-snap --stall-k 0`; one no-op hook
+  `_after_pop(s)` carries the stall fallback, tested for identical metrics at `--stall-k 0` · user; §6, §7.
+- 2026-10-29 · One VLM, Qwen2.5-VL-7B-Instruct (bf16), for all views, the vision judge and the LLM-A* rerun; Llama-3-8B
+  only for Table 1; GPT-4o mini later as the final model · user. MMP-A* = Ha et al., arXiv:2601.01910 v2 (one VLM
+  judge per map keeps or discards numbered waypoints, never adds; heuristic term decays by α^k, α = 0.7); code
+  github.com/langkhachhoha/MMP-ASTAR. Canonical waypoint id = the snapped cell (§4.3).
+- 2026-10-30 · Step-1 docs went straight to main; later work on a feature branch `quorumastar` from main.
+- 2026-11-03 · Method name Quorum-A*; planned names: package `llmastar/quorumastar/`, `--method quorumastar`, classes
+  `QuorumAStar`, `QuorumAStarGenerator`, `QuorumConfig`, `pather/quorum_a_star/`, tests `tests/test_quorumastar_*.py` · user.
+- 2026-11-03 · Environment constraints → Constraints. Reported Table 1 keeps `stop="\n"` removed (it cuts multi-line CoT/RePE answers),
+  recorded as a deviation, with a flag to restore it and both versions reported · user. At most 4 LLM calls per query by
+  default (3 views + vision judge), 60 s per call; on error a voter abstains, and with no voters the search runs with no
+  waypoints; wall time per query is logged · user.
+- 2026-11-03 · agent.md is an agent prompt (Mission, Architecture, Teaching and Build protocols, then state) · user.
+- 2026-11-03 · Client retries: 429 / 5xx / timeouts up to 3× with exponential backoff; a rejected parameter is dropped and
+  retried once; other 4xx never retried. *Supersedes* "no retries by default" (entry above) · user review.
+- 2026-11-03 · `--stop-newline` and `--max-tokens` are separate flags; "original setup" runs use both (stop "\n", 100).
+  `llm='gpt'` uses `prompt_set="gpt"`; chat completions only. Steps 1b then 2.0 approved · user review (Q6–Q8).
+- 2026-11-03 · Pilot ground truth: a waypoint is bad if start→wp→goal by A* is > 5% longer than optimal. *Supersedes* the
+  "> 3 cells from A* corners" rule · user review.
+- 2026-11-03 · No fixed schedule; track progress here. "Save progress" protocol added (Session protocol 6) · user.
+- 2026-11-03 · Views: corners = visibility-graph incident adjacency list (Fatemi et al., arXiv 2310.04560, incident
+  encoding best for most prompting methods; Li et al. 2026, arXiv 2604.10690, adjacency lists beat grids on mazes);
+  candidate view `relations` (walls and passages in words, coordinate answers); image kept; default stays
+  text,corners,image until the pilot picks the third view; ≤ 4 calls per query · user review.
 
 ## Conventions
-- `CLAUDE.md` contains only `@agent.md`, so every session loads this file. METHOD.md is the CDA* spec; keep it in
-  sync with the code.
-- Layout: `llmastar/run.py` (one method over the benchmark), `summary.py` (Table 1 format), `scale.py` (Fig. 3),
-  `figures/` (figures from `outputs/` only), `pather/` (A*, DWA*, LLM-A*: search only, no LLM code), `waypoints/`
-  (`base.py`: `WaypointGenerator` protocol, `WaypointResult(waypoints, parse_ok, raw)`, `parse_waypoints`;
-  `prompting.py`: the paper's prompts), `model/` (`ChatGPT` OpenAI-compatible client + `cache.py`), `benchmark.py`
-  (`load_queries`, `evaluate_llm_path`, `segment_collides`), `outputs.py` (paths).
-  `dataset/environment_50_30.json`: 100 maps × 10 queries, 51 × 31 grid. CDA* modules: METHOD.md §10 (planned).
-- Generators must be thread-safe (`generate(query)` is called from many threads).
-- Waypoint filter applied by the search: `LLMAStar._filter_valid_nodes` (not an obstacle, 2 ≤ x ≤ 48, 2 ≤ y ≤ 28 on
-  the benchmark grid). If no waypoint survives, the target is the goal and h = 2 × distance to goal (weighted A*, w = 2).
-- Outputs: `outputs/<model>/<run>.csv`, `raw/<run>.jsonl` (git-ignored), `traces/<run>/<map>_<sg>.json`,
-  `summary.md`, `summary.csv`, `scalability.csv`; `outputs/figures/`; `.cache/llm/` and `logs/` are git-ignored.
-  `<model>` = served name: `llama-3-8b-instruct` (Table 1), `qwen2.5-vl-7b-instruct` (CDA*).
-- Run name: `<method>[_<tag>][-<variant>]`; tag = prompt name for generator `prompt`, else the generator name.
-  Planned: `wastar-w1.5|w2|w3`, `cdastar[-<non-default flags>]`.
+- `CLAUDE.md` contains only `@agent.md`. Layout: `llmastar/run.py` (one method over the benchmark), `summary.py` (Table 1
+  format), `scale.py` (Fig. 3), `figures/`, `pather/` (A*, DWA*, LLM-A*: search only, no LLM code), `waypoints/` (`base.py`:
+  `WaypointGenerator`, `WaypointResult`, `parse_waypoints`; `prompting.py`: the paper's prompts), `model/` (`ChatGPT` client
+  + `cache.py`), `benchmark.py` (`load_queries`, `evaluate_llm_path`, `segment_collides`), `outputs.py`.
+  `dataset/environment_50_30.json`: 100 maps × 10 queries on a 51 × 31 grid. Generators must be thread-safe.
+- Waypoint filter and the no-survivor fallback: METHOD.md §1.
+- Outputs: `outputs/<model>/<run>.csv`, `raw/<run>.jsonl` (git-ignored), `traces/<run>/<map>_<sg>.json`, `summary.md`,
+  `summary.csv`, `scalability.csv`; `outputs/figures/`. `<model>` = served name (`llama-3-8b-instruct` for Table 1,
+  `qwen2.5-vl-7b-instruct` for Quorum-A*). Run name `<method>[_<tag>][-<variant>]`, e.g. `wastar-w2`, `quorumastar`.
 - CSV columns: `map_id, sg_idx, start, goal, method, prompt, model, operation, storage, length, valid, valid_lenient,
-  parse_ok, n_waypoints, n_targets, seconds, error` (CDA* adds the METHOD.md §8 columns).
-- Table ratios: geometric mean over queries of (run / A*) × 100, on queries where both are valid.
-  `no_targets` = % of queries with `n_targets == 2`.
-- Tests: `pytest -q tests` (env `llmastar`). CI: `.github/workflows/test.yml` (ubuntu-latest, Python 3.11,
-  `pip install -r requirements.txt`, `pytest -q tests`) on pushes and PRs to main.
-- Git remote: `origin` = `git@github.com:skyachieved/llm-astar-optimized.git` (SSH since 2026-10-30), so a plain
-  `git push` works from any shell, tmux included. The old HTTPS remote failed in shells that had VS Code's stale
-  `GIT_ASKPASS`; `scripts/git_push.sh` worked around that and is no longer needed.
-- Local scripts (git-ignored): `scripts/serve_local.sh [llama3|qwen2.5-vl|DIR] [name]` (log
-  `logs/vllm_<name>.log`), `scripts/get_qwen_vl.sh` (log `logs/get_qwen_vl.log`), `scripts/setup_vllm_env.sh`.
+  parse_ok, n_waypoints, n_targets, seconds, error` (+ METHOD.md §8 columns). Table ratios: geometric mean of
+  (run / A*) × 100 over queries valid in both; `no_targets` = % of queries with `n_targets == 2`.
+- Tests: `pytest -q tests` (env `llmastar`); CI `.github/workflows/test.yml`. Local scripts (git-ignored):
+  `scripts/serve_local.sh [llama3|qwen2.5-vl|DIR] [name]`, `scripts/get_qwen_vl.sh`, `scripts/setup_vllm_env.sh`.
 
 ## How to run
-Envs: `llmastar` (Python 3.11, `pip install -r requirements.txt`, no torch) and `vllm` (Python 3.11,
-`vllm==0.11.0`, `transformers>=4.56,<5`). Models: `~/models/Meta-Llama-3-8B-Instruct`, `~/models/Qwen2.5-VL-7B-Instruct`.
+Envs: `llmastar` (Python 3.11, `pip install -r requirements.txt`) and `vllm` (`vllm==0.11.0`, `transformers>=4.56,<5`).
+Models in `~/models/` (Qwen2.5-VL not downloaded yet).
 ```bash
-# model (env vllm): check support + download once, then serve in its own terminal (GPU=0 is the default)
-bash scripts/get_qwen_vl.sh
-bash scripts/serve_local.sh qwen2.5-vl        # or: bash scripts/serve_local.sh llama3  (Table 1 model)
-# public equivalent of serve_local.sh (README)
-CUDA_VISIBLE_DEVICES=0 vllm serve ~/models/Meta-Llama-3-8B-Instruct \
-  --served-model-name llama-3-8b-instruct --host 127.0.0.1 --port 8000 \
-  --dtype bfloat16 --max-model-len 8192 --gpu-memory-utilization 0.90 \
-  --generation-config vllm --seed 0
-# experiments (env llmastar)
-export OPENAI_API_KEY=dummy
-python -m llmastar.run --method astar --jobs 8
-python -m llmastar.run --method dwastar --jobs 8
-python -m llmastar.run --method llmastar --prompt standard --jobs 8 --workers 32   # also cot, repe; --limit 50 for a pilot
-python -m llmastar.run --method llm_only --prompt standard --jobs 8 --workers 32
-python -m llmastar.scale --jobs 8
-python -m llmastar.summary && python -m llmastar.figures
+bash scripts/get_qwen_vl.sh && bash scripts/serve_local.sh qwen2.5-vl   # env vllm; or: serve_local.sh llama3
+export OPENAI_API_KEY=dummy                                              # env llmastar
+python -m llmastar.run --method astar --jobs 8                           # also dwastar
+python -m llmastar.run --method llmastar --prompt standard --jobs 8 --workers 32   # cot, repe; --limit 50 = pilot
+python -m llmastar.scale --jobs 8 && python -m llmastar.summary && python -m llmastar.figures
 pytest -q tests
 ```
-Add `--model qwen2.5-vl-7b-instruct` to any run to use (and write outputs for) the Qwen server.
+Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen server.
 
 ## Results
-- 2026-10-29 · Table 1 reproduction · llama-3-8b-instruct (vLLM bf16, greedy) · all 1,000 queries ·
-  `outputs/llama-3-8b-instruct/summary.md` (per-run CSVs next to it). Ops / storage / length / valid, ×100 vs. A*
-  (paper in brackets):
-  - dwastar: 59.49 / 78.65 / 100.25 / 100 (60.91 / 78.53 / 100.24 / 100)
-  - llmastar_standard: 42.99 / 62.83 / 102.27 / 100 (44.59 / 64.02 / 102.47 / 100); no_targets 25.40%
-  - llmastar_cot: 49.63 / 68.06 / 102.45 / 100 (47.60 / 66.27 / 102.46 / 100); no_targets 9.60%
-  - llmastar_repe: 69.70 / 84.31 / 102.42 / 100 (64.08 / 80.19 / 102.54 / 100); no_targets 7.10%
-  - llm_only standard / cot / repe: length 110.91 / 118.53 / 169.01, valid 10.70 / 9.70 / 9.80%
-    (paper 111.05 / 114.89 / 138.32, valid 12.60 / 12.00 / 16.40%)
-- 2026-10-29 · Other DWA* readings · same file: dwastar-fixed 33.66 / 61.15 / 105.66; dwastar-depth
-  33.20 / 55.49 / 102.55; dwastar-min0 105.02 / 141.40 / 100.25; dwastar-fixed-min0 46.49 / 82.29 / 108.19.
-- 2026-10-29 · Figs. 1–3 · `outputs/figures/`; numbers in REPRODUCTION.md ("Figures").
+- 2026-10-29 · Table 1 reproduction · llama-3-8b-instruct · all 1,000 queries · `outputs/llama-3-8b-instruct/summary.md`.
+  Ops / storage / length (A* = 100), paper in brackets: dwastar 59.49 / 78.65 / 100.25 (60.91 / 78.53 / 100.24);
+  llmastar_standard 42.99 / 62.83 / 102.27 (44.59 / 64.02 / 102.47), no_targets 25.40%; llmastar_cot 49.63 / 68.06 /
+  102.45 (47.60 / 66.27 / 102.46); llmastar_repe 69.70 / 84.31 / 102.42 (64.08 / 80.19 / 102.54); all valid 100%.
+  LLM-only valid 10.70 / 9.70 / 9.80% (paper 12.60 / 12.00 / 16.40%). Other DWA* readings are in the same file.
+- 2026-10-29 · Fig. 1 query: ours 183 / 292 / 56.77, paper 140 / 235 / 53.46 (both Llama waypoints fell on walls).
+- 2026-11-03 · Fig. 3 scalability at 10× · `outputs/llama-3-8b-instruct/scalability.csv`, `outputs/figures/fig5_*`: A* 107.8 ops /
+  76.2 storage (paper ≈ 115 / ≈ 65); LLM-A* 73.0 / 45.2 (paper ≈ 36 / ≈ 14). The paper's curve is read off its published image
+  (about ±1), not the authors' data. Three of our 10 queries get no LLM-A* saving at 10×; cause not yet tested.
+- 2026-10-29 · `llmastar_standard` had `no_targets` = 25.40% (those queries ran as weighted A*, w = 2) ·
+  `outputs/llama-3-8b-instruct/summary.md`.
 - Weighted A* (w = 1.5, 2, 3): **not run yet** (step 3).
 
 ## Open questions
-1. [answered 2026-10-29] Source of the rationale's 34.3% → external simulation; see Decisions (Q1).
-2. [answered 2026-10-29] Exact LLM-A* reproduction → `--fewshot paper`; see Decisions (Q2).
-3. [answered 2026-10-29] Fallback inside the search → one no-op hook; see Decisions (Q3).
-4. [answered 2026-10-29] Model for the image view and the vision judge → Qwen2.5-VL-7B-Instruct; see Decisions (Q4).
-5. [answered 2026-10-29] MMP-A* reference → arXiv:2601.01910; see Decisions (Q5).
-   (The TA answers of 2026-11-03 close no listed question; they are in Constraints and Decisions.)
-6. [user] With `--stop-newline`, should we also restore the original client's `max_tokens=100`, or change only `stop`?
-   Proposal: only `stop`, with a separate `--max-tokens`, so the two effects can be told apart.
-7. [user] `LLMAStar(llm='gpt')` currently builds `PromptWaypointGenerator(llm, prompt)`, whose default is the
-   Llama-3 dialogue (`prompt_set="llama"`), but the baseline used the GPT prompt. Proposal: `llm='gpt'` uses
-   `prompt_set="gpt"`, so the unchanged baseline call sends the original prompt.
+None open. Q6–Q8 were answered on 2026-11-03 (see Decisions).
 
 ## Log
-- 2026-11-03 · Added `fig4_vs_paper.py` and `fig5_scalability_vs_paper.py`. The paper publishes Fig. 3 only as an image
-  (`docs/static/images/scalability.png` in SilinMeng0510/llm-astar), so its LLM-A* curve is read off the plot by eye
-  (about ±1; scales 1, 2, 4, 6, 8, 10) and labeled as such. Result: at 10× our LLM-A* is 73.0 ops / 45.2 storage
-  against the paper's ~36 / ~14, while A* is close (107.8 / 76.2 vs. ~115 / ~65), so our LLM-A* scales worse than
-  the paper's. A commit had renamed `outputs/` to `OPT/` and tracked `raw/`; Claude moved it back (`git mv OPT outputs`),
-  untracked `outputs/*/raw/` (still in earlier pushed history), and rendered the figures.
-- 2026-11-03 · TA answers recorded (Constraints, Decisions). Proposed step 2.0 (above); nothing implemented. Checked
-  the original (9414ed8) client: `openai.api_key`, `gpt-3.5-turbo`, temperature 0, `stop=["\n"]`, `max_tokens=100`.
-  The current `ChatGPT` always sends `top_p`, retries 5× with a 600 s timeout, and raises when `OPENAI_API_KEY` is
-  unset; `run.py` aborts on any generator error. Also found: `outputs/` deleted in the working tree (not by Claude).
-- 2026-10-30 · The user committed step 1 (agent.md, METHOD.md, CLAUDE.md, README.md) to main and pushed it.
-  Implementation starts another day at step 2a. The user switched `origin` to SSH, and plain `git push` now works.
-- 2026-10-29 · CDA* kickoff session. Created agent.md. Fixed against the code: figure code is in `llmastar/figures/`
-  (`scripts/` is git-ignored), and a CI workflow already exists (`ubuntu-latest`). Recorded the user's answers to Q1–Q5;
-  verified MMP-A* on arXiv and Qwen2.5-VL in vLLM 0.11.0's docs. `serve_local.sh` now takes the model as an argument
-  and adds the vision settings automatically; added `get_qwen_vl.sh`. Wrote METHOD.md, which completes step 1.
-- 2026-10-29 · Earlier sessions: reproduced LLM-A* Table 1 and Figs. 1–3 with Llama-3-8B-Instruct on vLLM
-  (main 823a892, docs a536281).
+- 2026-11-03 · Applied review (retry policy, pilot ground truth, hypothesis wording, Q6–Q8, incident-encoded corners,
+  candidate `relations`; METHOD.md §11, README "Inspirations"). Rewrote this file as an agent prompt; recorded the
+  environment constraints; rendered ours-vs-paper figures. Added the 1b test
+  (`tests/test_astar.py`, paper's Fig. 1 waypoints: storage 235, length 53.46 asserted; operation not asserted).
+  Original GPT client: `openai.api_key`, completions endpoint, `stop=["\n"]`, `max_tokens=100`; ours sends `top_p`,
+  retries 5× with a 600 s timeout and aborts a run on a generator error.
+- 2026-10-29/30 · Method spec written; Qwen2.5-VL and MMP-A* checked; step-1 docs on main, `origin` switched to SSH.
+  Table 1 and Figs. 1–3 reproduced with Llama-3-8B-Instruct on vLLM (main 823a892, docs a536281).

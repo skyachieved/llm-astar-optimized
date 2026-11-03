@@ -1,4 +1,4 @@
-# Clear Democratic A*
+# Quorum-A*: Multi-View LLM Consensus for Robust Heuristic Search in Path Planning
 
 This repository tests whether **better waypoints make LLM-guided A\* search more efficient**. It is work in
 progress: step 1, reproducing LLM-A\*, is done; the method itself is next.
@@ -10,7 +10,7 @@ toward one waypoint after another, so it expands far fewer states than plain A\*
 wrong, though. In our reproduction, on 25% of the queries every few-shot waypoint lay on a wall or at the map edge
 and had to be dropped. Some kept waypoints led the search the wrong way.
 
-**The idea.** Clear Democratic A\* picks waypoints in four stages:
+**The idea.** Quorum-A\* picks waypoints in four stages:
 
 1. Several LLM instances propose waypoints independently. Each one sees the map in a different encoding, for
    example coordinate text, a list of wall corners, or an image.
@@ -25,7 +25,7 @@ A\* operations and less memory, shorter paths, and fewer queries where the LLM's
 - **Step 1, done: reproduce LLM-A\*.** We re-ran the paper's Table 1 and Figs. 1–3 with Llama-3-8B-Instruct,
   served locally by vLLM on one 24 GB GPU. The results are below. [REPRODUCTION.md](REPRODUCTION.md) has the
   details, every choice the paper left open, and why some numbers differ.
-- **Step 2, next: build and measure Clear Democratic A\*.** The search code never talks to the LLM; it only takes
+- **Step 2, next: build and measure Quorum-A\*.** The search code never talks to the LLM; it only takes
   a list of waypoints. The method is a new waypoint generator in `llmastar/waypoints/`, so the search stays the
   same, and the method shows up as new rows in the results table.
 
@@ -155,6 +155,22 @@ outputs/               our results: per-query CSVs, summary.md, search traces, f
 tests/                 unit tests (pytest)
 REPRODUCTION.md        what we changed in the original code and why, deviations from the paper, why numbers differ
 ```
+
+## Inspirations
+
+Quorum-A\* combines ideas from these papers. Putting these views together as voters for waypoints is our contribution,
+and it is a hypothesis that our pilot experiments test, not a result.
+
+- **MedRAG** (Xiong, Jin, Lu, Zhang, *Benchmarking Retrieval-Augmented Generation for Medicine*, Findings of ACL 2024,
+  [arXiv:2402.13178](https://arxiv.org/abs/2402.13178)): several retrievers are fused by reciprocal rank fusion. This is
+  the analogue of our several views.
+- **Talk like a Graph** (Fatemi, Halcrow, Perozzi, ICLR 2024, [arXiv:2310.04560](https://arxiv.org/abs/2310.04560)): how a
+  graph is written as text changes LLM answers; the incident encoding did best for most prompting methods. Our corner
+  view uses it.
+- **Do LLMs Build Spatial World Models?** (Li, Zhu, Das, Dube, 2026,
+  [arXiv:2604.10690](https://arxiv.org/abs/2604.10690), preprint): adjacency lists beat grid layouts on mazes.
+- **Self-consistency** (Wang et al., ICLR 2023), **MMP-A\*** (Ha et al., 2026,
+  [arXiv:2601.01910](https://arxiv.org/abs/2601.01910)) and **weighted A\*** (Pohl, 1970): see METHOD.md for how each is used.
 
 ## Credit
 
