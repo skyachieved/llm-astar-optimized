@@ -15,7 +15,8 @@ class LLMAStar:
       - pass `waypoints` to `searching` (the runner does this after batching the LLM calls), or
       - give `generator`: any object with `generate(query) -> WaypointResult` (see llmastar.waypoints), or
       - give `llm` (a chat client such as ChatGPT(model, base_url), or 'gpt' / 'llama' for the defaults)
-        and `prompt` to use the paper's prompting.
+        and `prompt` to use the paper's prompting. 'gpt' is GPT-4o mini (the course's evaluation model) through the
+        Chat Completions API with the paper's GPT prompts; the key comes from openai.api_key or OPENAI_API_KEY.
     """
 
     name = "LLM-A*"
@@ -23,9 +24,11 @@ class LLMAStar:
     def __init__(self, llm=None, prompt='standard', generator=None):
         assert prompt in ['standard', 'cot', 'repe'], "Invalid prompt type. Choose 'standard', 'cot', or 'repe'."
         self.prompt = prompt
+        prompt_set = "llama"
         if llm == 'gpt':
             from llmastar.model import ChatGPT
-            llm = ChatGPT(model="gpt-3.5-turbo")
+            llm = ChatGPT(model="gpt-4o-mini")
+            prompt_set = "gpt"
         elif llm == 'llama':
             from llmastar.model import Llama3
             llm = Llama3()
@@ -34,7 +37,7 @@ class LLMAStar:
         self.llm = llm
         if generator is None and llm is not None:
             from llmastar.waypoints import PromptWaypointGenerator
-            generator = PromptWaypointGenerator(llm, prompt)
+            generator = PromptWaypointGenerator(llm, prompt, prompt_set)
         self.generator = generator
 
     def _parse_query(self, query):

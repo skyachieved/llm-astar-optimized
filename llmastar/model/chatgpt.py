@@ -7,19 +7,33 @@ from .cache import DiskCache, cache_key
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
 
+def resolve_api_key(api_key=None):
+    """The key to use: `api_key` if given, else `openai.api_key`, else OPENAI_API_KEY; None if there is none."""
+    if api_key:
+        return api_key
+    try:
+        import openai
+        module_key = getattr(openai, "api_key", None)
+    except ImportError:
+        module_key = None
+    return module_key or os.environ.get("OPENAI_API_KEY") or None
+
+
 # This class talks to any OpenAI-compatible Chat Completions endpoint (OpenAI, a local vLLM server, ...)
 class ChatGPT:
     """Chat client with an on-disk response cache.
 
-    The API key comes from OPENAI_API_KEY (any dummy value works for vLLM); the endpoint from `base_url`,
-    else OPENAI_BASE_URL, else OpenAI. Every response is cached under `cache_dir`, keyed by model, base URL,
+    The API key comes from `api_key`, else `openai.api_key` (as the original repository set it), else the
+    OPENAI_API_KEY environment variable; any dummy value works for vLLM. The key is never logged or cached.
+    The endpoint comes from `base_url`, else OPENAI_BASE_URL, else OpenAI. Every response is cached under `cache_dir`, keyed by model, base URL,
     messages and sampling settings, so reruns never repeat a request. No stop sequences are sent, so
     multi-line CoT / RePE answers are returned whole.
     """
 
-    def __init__(self, model="gpt-3.5-turbo", base_url=None, temperature=0.0, max_tokens=2048, top_p=1.0,
-                 seed=None, cache_dir=".cache/llm", timeout=600.0, max_retries=5):
+    def __init__(self, model="gpt-4o-mini", base_url=None, temperature=0.0, max_tokens=2048, top_p=1.0,
+                 seed=None, cache_dir=".cache/llm", timeout=600.0, max_retries=5, api_key=None):
         self.model = model
+        self._api_key = api_key
         self.base_url = (base_url or os.environ.get("OPENAI_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
         self.sampling = {"temperature": temperature, "max_tokens": max_tokens, "top_p": top_p, "seed": seed}
         self.cache = DiskCache(cache_dir) if cache_dir else None
@@ -33,9 +47,10 @@ class ChatGPT:
         with self._lock:
             if self._client is None:
                 from openai import OpenAI
-                api_key = os.environ.get("OPENAI_API_KEY")
+                api_key = resolve_api_key(self._api_key)
                 if not api_key:
-                    raise RuntimeError("OPENAI_API_KEY is not set (any dummy value works for a local vLLM server).")
+                    raise RuntimeError("No API key: pass api_key, set openai.api_key or set OPENAI_API_KEY "
+                                       "(any dummy value works for a local vLLM server).")
                 self._client = OpenAI(api_key=api_key, base_url=self.base_url,
                                       timeout=self.timeout, max_retries=self.max_retries)
             return self._client
