@@ -1,3 +1,6 @@
+import base64
+import copy
+import hashlib
 import os
 import random
 import re
@@ -57,6 +60,30 @@ def _rejected_param(error, sent):
     return None
 
 
+def image_part(png_bytes, detail=None):
+    """A chat message part carrying a PNG image, in the OpenAI format that vLLM also accepts."""
+    url = "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii")
+    part = {"type": "image_url", "image_url": {"url": url}}
+    if detail:
+        part["image_url"]["detail"] = detail
+    return part
+
+
+def redact_images(messages):
+    """A copy of `messages` with every inline image replaced by the sha256 of its data URL. Used for the cache key
+    and the cache record, so a key does not depend on how the bytes are encoded and records stay small."""
+    redacted = copy.deepcopy(messages)
+    for message in redacted:
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            image = part.get("image_url") if isinstance(part, dict) else None
+            if isinstance(image, dict) and str(image.get("url", "")).startswith("data:"):
+                image["url"] = "sha256:" + hashlib.sha256(image["url"].encode("ascii")).hexdigest()
+    return redacted
+
+
 def _describe(error):
     status = _status(error)
     message = str(getattr(error, "message", "") or error).replace("\n", " ")
@@ -77,6 +104,9 @@ class ChatGPT:
     parameter (e.g. a model without `temperature`), that parameter is dropped and the request is sent once more.
     Any other error (401, 404, other 4xx, no key) is not retried. A failed call returns "" with `info["error"]` set,
     and is not cached, so a rerun tries again.
+
+    Messages may contain images (`image_part`); the cache key and the cache record hold only their sha256.
+    `json_mode=True` sends `response_format={"type": "json_object"}`, dropped like any rejected parameter.
 
     Sampling: no stop sequence by default, so multi-line CoT / RePE answers are returned whole; `stop=["\\n"]` with
     `max_tokens=100` is the original repository's setting. `stop` enters the cache key only when it is set, so
@@ -132,11 +162,18 @@ class ChatGPT:
                     continue
                 return None, _describe(error), attempts, dropped
 
-    def chat_with_info(self, messages, **overrides):
+    def chat_with_info(self, messages, json_mode=False, **overrides):
         """Return (content, info). info has the cache key, whether it was a cache hit, finish reason, usage, the
-        number of attempts, any dropped parameters and, on failure, `error` (content is then "")."""
+        number of attempts, any dropped parameters and, on failure, `error` (content is then "").
+
+        `messages` may carry images (see `image_part`); a model without image input fails the call, which the caller
+        treats as an abstention. `json_mode=True` asks for a JSON object (`response_format`); an endpoint that rejects
+        it gets the request again without it, so callers must still parse leniently."""
         sampling = {**self.sampling, **overrides}
-        request = {"model": self.model, "base_url": self.base_url, "messages": messages, "sampling": sampling}
+        if json_mode:
+            sampling["response_format"] = {"type": "json_object"}
+        request = {"model": self.model, "base_url": self.base_url, "messages": redact_images(messages),
+                   "sampling": sampling}
         key = cache_key(request)
         record = self.cache.get(key) if self.cache is not None else None
         cached = record is not None

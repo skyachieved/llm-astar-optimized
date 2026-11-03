@@ -1,4 +1,4 @@
-from .chatgpt import ChatGPT
+from .chatgpt import ChatGPT, image_part, redact_images
 
 
 def __getattr__(name):
