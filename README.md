@@ -77,6 +77,13 @@ result = LLMAStar(llm="gpt", prompt="standard").searching(query=query, filepath=
 print(result["operation"], result["storage"], result["length"], result["valid"])
 ```
 
+Quorum-A\* has the same interface (it makes up to 4 LLM calls per query: 3 views and a vision check):
+
+```python
+from llmastar.pather import QuorumAStar
+result = QuorumAStar(llm="gpt").searching(query=query, filepath="search.png")   # same result keys + "fallback"
+```
+
 `llm="gpt"` is GPT-4o mini with the paper's GPT prompts (`prompt` is `standard`, `cot` or `repe`). The result has
 `operation` (states expanded), `storage` (states stored), `length` (path length), `valid`, `path`, `visited` and
 `llm_output` (the start, the waypoints kept and the goal). `filepath` is optional and saves a plot.
@@ -90,6 +97,8 @@ export OPENAI_API_KEY=sk-...
 python -m llmastar.run --method astar    --dataset my_maps.json --model gpt-4o-mini
 python -m llmastar.run --method llmastar --dataset my_maps.json --model gpt-4o-mini \
   --base-url https://api.openai.com/v1 --prompt-set gpt --prompt standard
+python -m llmastar.run --method quorumastar --dataset my_maps.json --model gpt-4o-mini \
+  --base-url https://api.openai.com/v1
 ```
 
 Each run writes `outputs/<model>/<run>.csv` with one row per query: `map_id, sg_idx, start, goal, method, prompt,

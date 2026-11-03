@@ -322,6 +322,9 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-03 (yumin0-0) · Submission interface: `QuorumAStar(llm="gpt").searching(query=..., filepath=...)` builds
+  QuorumAStarGenerator on GPT-4o mini, same result keys as LLMAStar plus `fallback` (the course requires the baseline
+  repository's input/output format on hidden maps); README example (`tests/test_quorumastar_api.py`).
 - 2026-11-03 (yumin0-0) · PR #2 merged (main b24bc15). Added `llmastar/figures/fig6_methods.py` (team request): A*,
   LLM-A*, Quorum-A* searches on one query + averages vs A* with weighted A* (w=2), all on the same queries; a run that
   does not exist is drawn as an empty panel, never estimated (`tests/test_fig6_methods.py`). Current
