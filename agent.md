@@ -178,6 +178,10 @@ efficient search, at the cost of more LLM calls.
   views, fewshot, `QuorumAStarGenerator`; `--method quorumastar`). Nothing has run against a real model yet: every
   test uses a mock. GPT-4o mini has never been called (no API key yet). Next: step 3 on dgx; Qwen2.5-VL-7B on dgx needs the same fp16 parity
   check before step 3; run Table 1 with `--stop-newline --max-tokens 100` for 2.0f.
+- 2026-11-03 night: first real-model runs, on GPT-4o mini (dgx GPUs 0-7 all taken by other users; GPT-4o mini is the
+  course's model, so it went first). Image reading 2/3, all off = LLM-A* confirmed (0 new requests, identical
+  metrics), Quorum-A* ran end to end on 5 queries (see Results). Pilot tooling added (`llmastar/quorumastar/pilot.py`);
+  next: the pilot on 50 self-generated maps with GPT-4o mini.
 
 ## Next steps
 - [x] 1. Read the repo and REPRODUCTION.md; write agent.md and METHOD.md. *(2026-11-03; layout = METHOD.md §10)*
@@ -203,12 +207,15 @@ efficient search, at the cost of more LLM calls.
 - [ ] 3. End to end: `python -m llmastar.run --method quorumastar ...`. Baselines on qwen2.5-vl-7b-instruct (all 1,000):
       astar, wastar w = 1.5 / 2 / 3, llmastar standard / cot / repe; wastar ×3 also on llama-3-8b-instruct. All-off run:
       0 new LLM requests and metrics equal to `llmastar_standard.csv`.
+      *(2026-11-03: all-off check passed on gpt-4o-mini, 10 queries; Qwen baselines wait for free GPUs.)*
 - [ ] 4. Pilot (50 maps, local model). Ground truth: a waypoint is "bad" if the shortest path through it (start→wp→goal,
       by A*) is > 5% longer than optimal (METHOD.md §11). (i) each candidate view's solo waypoint quality (text, corners,
       image, relations), on self-generated maps only, never the evaluation maps; (ii) how often each shares the same bad
       waypoint with the text and corner views; choose the third view (image or relations) by best combined quality and
       independence, and record the decision and its numbers under Decisions; (iii) vision check catch / false-alarm
       rates; (iv) Quorum-A* vs. LLM-A* vs. weighted A*. Write a go/no-go decision here and wait for the user.
+      Tooling: `python -m llmastar.quorumastar.pilot make` / `report` (also: vote agreement and an offline simulation
+      of radius-r vote matching, r = 0..3, for every 3-view set).
 - [ ] 5. Full runs (1,000) and ablations: each view alone vs. all; quorums; vision; snap; fallback; few-shot
       shared / per-view / none; CoT; roles.
 - [ ] 6. Harder generated maps (mazes, more walls, 2–3× size; fixed seed; held-out split never used for defaults) and a
@@ -257,6 +264,9 @@ efficient search, at the cost of more LLM calls.
 - 2026-11-03 · Pilot ground truth: a waypoint is bad if start→wp→goal by A* is > 5% longer than optimal. *Supersedes* the
   "> 3 cells from A* corners" rule · user review.
 - 2026-11-03 · No fixed schedule; track progress here. "Save progress" protocol added (Session protocol 6) · user.
+- 2026-11-03 · Pilot model: gpt-4o-mini instead of the local model (dgx GPUs taken; it is the course's model, about
+  $0.007 per query). The pilot run asks all four candidate views at once (5 calls per query, above the default 4,
+  measurement only); vote matching radius is measured offline from the same answers before any default changes · KC.
 - 2026-11-03 · Views: corners = visibility-graph incident adjacency list (Fatemi et al., arXiv 2310.04560, incident
   encoding best for most prompting methods; Li et al. 2026, arXiv 2604.10690, adjacency lists beat grids on mazes);
   candidate view `relations` (walls and passages in words, coordinate answers); image kept; default stays
@@ -317,11 +327,26 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   k = 2 fires at pop 80 (leg (24, 15) -> (5, 6): budget 56, 57 pops used), one pop before the target; k = 3 never
   fires. Result unchanged either way. Evidence that k = 2 is tight; the pilot (self-generated maps) decides k.
 
+- 2026-11-03 · First real-model runs · gpt-4o-mini (OpenAI API, KC's key) · `outputs_gpt/gpt-4o-mini/` (dgx, not
+  committed). (a) Image reading (`scripts/vl_smoke.py`, 3 pool maps, seed 99): S and G within 2 cells on 2/3 maps,
+  max error 3 on the third. (b) All off = LLM-A* on the first 10 queries: `llmastar_standard` 56.27 / 70.99 / 101.04,
+  all-off run 56.27 / 70.99 / 101.04 with 10/10 from cache (0 new requests). (c) Quorum-A* default (text, corners,
+  image; quorum 2; vision judge) on the first 5 queries: 0 abstentions, 0 errors, 100% valid, 16 calls, 243,726 tokens
+  (about 49k per query, about $0.007); ops / storage 38.62 / 58.74 vs LLM-A* 36.90 / 57.02 on the same 5 (n = 5, no
+  conclusion). Mechanism: on 4/5 queries no cell got 2 votes, so the search ran without waypoints; on 0:0 text and
+  corners chose the two corner cells of one wall end ((24, 9) and (26, 9)), which the exact-cell vote counts apart;
+  the image view answers long axis-aligned paths on multiples of 5. These are evaluation queries: they only show the
+  pipeline runs and suggest what the pilot should measure; no default is changed from them.
+
 ## Open questions
 - Q10. `--stall-k` default: 2 (METHOD.md) fired on the Fig. 1 query one pop early. Keep 2 and let the pilot decide, or
   change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-03 (yumin0-0) · Step 3 on gpt-4o-mini (see Results) and the pilot tooling: `llmastar/quorumastar/pilot.py`
+  (`make`: 50 maps from the few-shot generator under a disjoint seed namespace; `report`: solo quality, shared bad
+  waypoints, voting as run and simulated at radius 0..3, vision catch / false-alarm, search vs A*), with
+  `tests/test_quorumastar_pilot.py`.
 - 2026-11-03 (yumin0-0) · Submission interface: `QuorumAStar(llm="gpt").searching(query=..., filepath=...)` builds
   QuorumAStarGenerator on GPT-4o mini, same result keys as LLMAStar plus `fallback` (the course requires the baseline
   repository's input/output format on hidden maps); README example (`tests/test_quorumastar_api.py`).
