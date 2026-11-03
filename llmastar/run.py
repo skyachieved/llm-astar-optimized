@@ -46,7 +46,8 @@ def matches(ids, query):
 def build_generator(args):
     from llmastar.model import ChatGPT
     client = ChatGPT(model=args.model, base_url=args.base_url, temperature=args.temperature,
-                     max_tokens=args.max_tokens, cache_dir=args.cache_dir)
+                     max_tokens=args.max_tokens, cache_dir=args.cache_dir, api_key=args.api_key,
+                     stop=["\n"] if args.stop_newline else None)
     return REGISTRY[args.generator](client, args)
 
 
@@ -118,8 +119,13 @@ def parse_args(argv=None):
     p.add_argument("--generator", default="prompt", choices=sorted(REGISTRY), help="waypoint generator")
     p.add_argument("--model", default="llama-3-8b-instruct", help="served model name; also names outputs/<model>/")
     p.add_argument("--base-url", default=os.environ.get("OPENAI_BASE_URL", "http://127.0.0.1:8000/v1"))
+    p.add_argument("--api-key", default=None,
+                   help="API key; default: openai.api_key, then $OPENAI_API_KEY. Never logged or cached.")
     p.add_argument("--temperature", type=float, default=0.0)
-    p.add_argument("--max-tokens", type=int, default=2048)
+    p.add_argument("--max-tokens", type=int, default=2048,
+                   help="completion token limit (the original repository used 100)")
+    p.add_argument("--stop-newline", action="store_true",
+                   help='send stop="\\n" as the original repository did; it cuts multi-line CoT / RePE answers')
     p.add_argument("--limit", type=int, help="only the first N queries (dataset order: map 0 sg 0..9, map 1 ...)")
     p.add_argument("--queries", nargs="+", metavar="MAP:SG", help="only these queries, e.g. 1:0 or 1:* (whole map)")
     p.add_argument("--trace", nargs="*", default=["1:*"], metavar="MAP:SG",
@@ -148,6 +154,14 @@ def wastar_options(weight):
     return {"w0": weight, "decay": 1.0, "schedule": "pop", "rekey": False, "min_weight": 1.0}
 
 
+def llm_variant(args):
+    """Run-name suffix for non-default LLM sampling, e.g. llmastar_cot-stopnl-max100 (the original setup)."""
+    parts = ["stopnl"] if args.stop_newline else []
+    if args.max_tokens != 2048:
+        parts.append(f"max{args.max_tokens}")
+    return "-".join(parts) or None
+
+
 def dwa_variant(args):
     """Run-name suffix for non-default Dynamic WA* settings, e.g. dwastar-depth, dwastar-fixed-min0."""
     parts = [] if args.dwa_schedule == "pop" else [args.dwa_schedule]
@@ -172,6 +186,8 @@ def main(argv=None):
         variant = dwa_variant(args)
     elif args.method == "wastar":
         variant = f"w{args.weight:g}"  # wastar-w1.5, wastar-w2, wastar-w3
+    elif is_llm:
+        variant = llm_variant(args)
     else:
         variant = None
     run = run_name(args.method, tag, variant)
