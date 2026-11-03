@@ -1,6 +1,7 @@
 """Run one method over the benchmark and write outputs/<model>/<run>.csv (+ raw/ and traces/).
 
   python -m llmastar.run --method astar
+  python -m llmastar.run --method wastar --weight 2          # weighted A*, run name wastar-w2
   python -m llmastar.run --method llmastar --prompt cot --limit 50
 
 LLM methods first get waypoints for every query (concurrent requests, cached on disk), then run the
@@ -18,7 +19,7 @@ from llmastar.outputs import OUTPUTS_ROOT, RunPaths, run_name
 from llmastar.pather import AStar, DWAStar, LLMAStar
 from llmastar.waypoints import REGISTRY
 
-METHODS = ("astar", "dwastar", "llm_only", "llmastar")
+METHODS = ("astar", "dwastar", "wastar", "llm_only", "llmastar")
 LLM_METHODS = ("llm_only", "llmastar")
 QUERY_KEYS = ("start", "goal", "range_x", "range_y", "horizontal_barriers", "vertical_barriers")
 CSV_FIELDS = ["map_id", "sg_idx", "start", "goal", "method", "prompt", "model", "operation", "storage", "length",
@@ -76,7 +77,7 @@ def search_one(job):
     try:
         if method == "astar":
             result = AStar().searching(query, filepath=plot_path)
-        elif method == "dwastar":
+        elif method in ("dwastar", "wastar"):
             result = DWAStar(**options).searching(query, filepath=plot_path)
         elif method == "llmastar":
             result = LLMAStar().searching(query, filepath=plot_path, waypoints=waypoints)
@@ -126,6 +127,8 @@ def parse_args(argv=None):
     p.add_argument("--plot", action="store_true", help="also save a PNG per query under outputs/<model>/plots/")
     p.add_argument("--workers", type=int, default=16, help="concurrent LLM requests")
     p.add_argument("--jobs", type=int, default=4, help="search worker processes")
+    p.add_argument("--weight", type=float, default=2.0,
+                   help="weighted A* (--method wastar): constant weight w in f = g + w * h; w = 1 is A*")
     p.add_argument("--dwa-w0", type=float, default=2.0, help="Dynamic WA* initial weight")
     p.add_argument("--dwa-decay", type=float, default=0.99, help="Dynamic WA* weight decay")
     p.add_argument("--dwa-schedule", default="pop", choices=("pop", "depth"), help="Dynamic WA* decay schedule")
@@ -138,6 +141,11 @@ def parse_args(argv=None):
     p.add_argument("--out", default=str(OUTPUTS_ROOT), help="outputs root")
     p.add_argument("--cache-dir", default=".cache/llm")
     return p.parse_args(argv)
+
+
+def wastar_options(weight):
+    """Weighted A* = Dynamic WA* with a constant weight (decay 1), so no new search code is needed."""
+    return {"w0": weight, "decay": 1.0, "schedule": "pop", "rekey": False, "min_weight": 1.0}
 
 
 def dwa_variant(args):
@@ -160,7 +168,12 @@ def main(argv=None):
     queries = [q for q in load_queries(args.dataset) if not selected or matches(selected, q)][:args.limit]
     is_llm = args.method in LLM_METHODS
     tag = (args.prompt if args.generator == "prompt" else args.generator) if is_llm else None
-    variant = dwa_variant(args) if args.method == "dwastar" else None
+    if args.method == "dwastar":
+        variant = dwa_variant(args)
+    elif args.method == "wastar":
+        variant = f"w{args.weight:g}"  # wastar-w1.5, wastar-w2, wastar-w3
+    else:
+        variant = None
     run = run_name(args.method, tag, variant)
     paths = RunPaths(args.model, run, args.out)
     paths.dir.mkdir(parents=True, exist_ok=True)
@@ -176,8 +189,13 @@ def main(argv=None):
                           "base_url": args.base_url, **result.raw}
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-    options = {"w0": args.dwa_w0, "decay": args.dwa_decay, "schedule": args.dwa_schedule,
-               "rekey": args.dwa_rekey, "min_weight": args.dwa_min_weight} if args.method == "dwastar" else {}
+    if args.method == "dwastar":
+        options = {"w0": args.dwa_w0, "decay": args.dwa_decay, "schedule": args.dwa_schedule,
+                   "rekey": args.dwa_rekey, "min_weight": args.dwa_min_weight}
+    elif args.method == "wastar":
+        options = wastar_options(args.weight)
+    else:
+        options = {}
     if args.plot:
         paths.plots.mkdir(parents=True, exist_ok=True)
     jobs = [(args.method, options, query, gen.waypoints if gen else None,
