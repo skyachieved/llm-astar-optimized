@@ -2,7 +2,7 @@
 
 Method specification.
 
-Specification as of 2026-11-03 (views revised after review). The implementation is pending (agent.md, steps 2–3). Step 8 checks that this file
+Specification as of 2026-11-03 (views revised after review). Implemented in `llmastar/quorumastar/` (agent.md step 2d); end-to-end runs are step 3. Step 8 checks that this file
 matches the code. Every default below is a CLI flag of `python -m llmastar.run --method quorumastar`.
 
 ## 1. Setting: what Quorum-A* plugs into
@@ -103,11 +103,14 @@ the last bracketed list in the text (`parse_waypoints` rule).
   at y = 10 blocks x = 0..25; you can pass it at x = 26 or beyond." One sentence per barrier, built from the barrier
   list and its free ends. Answer: `[[x, y], ...]`. The pilot (§11) decides between this view and the image view.
 - **image**: a PNG of the map (matplotlib Agg, 20 px per cell, x and y axes labeled every 5 cells, grid every
-  cell, y pointing up, barriers drawn as thick black segments, S and G marked). Answer: `[[x, y], ...]`. Zero-shot.
+  cell, y pointing up, barriers drawn as thick black segments, S and G marked). Answer: `[[x, y], ...]`. Zero-shot. The
+  text part gives only the grid size and the start and goal coordinates (needed to answer in coordinates), never the
+  barrier list.
   If the model has no image input, the request fails and the view abstains (logged).
 - At most 4 LLM calls per query by default: 3 views + the vision judge (§4.5). Adding `relations` to `--views` adds a call.
 - A view **abstains** if its call errors or its answer has no parsable list. An abstaining view casts no vote.
-- `--cot` (off): each view first gives brief reasoning, then the JSON answer. `--roles` (off): each view gets its own
+- `--cot` (off): each view first gives brief reasoning in a `"reasoning"` field of the same JSON object (so JSON
+  mode still applies), then `"waypoints"`. `--roles` (off): each view gets its own
   system role. Both exist for the ablations in step 5.
 
 **4.2 Few-shot** (`--fewshot`, default `per-view`; `--n-shots` 3; `--fewshot-seed` 0). Examples come from a pool of

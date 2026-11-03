@@ -174,8 +174,9 @@ efficient search, at the cost of more LLM calls.
 - dgx parity check passed (see Results): on the first 50 queries, fp16/V100 and the team's bf16/A5000 LLM-A* runs
   agree on 45/50 queries and differ by < 1 point on the averages, so dgx can run the LLM experiments.
 - Step 2.0 done on branch `client-2.0` (a–e; f documented, the `-stopnl-max100` Table 1 runs are still to do): see Log.
-- 2c done; 2d part 1 done (geometry, canonical, voting, pruning, tested on the worked example). Next: 2d part 2
-  (config, render, views, parsing, fewshot, generator, the §6 "all off" test); Qwen2.5-VL-7B on dgx needs the same fp16 parity
+- Step 2 done: 2c, and 2d (`llmastar/quorumastar/`: config, geometry, canonical, voting, pruning, render, parsing,
+  views, fewshot, `QuorumAStarGenerator`; `--method quorumastar`). Nothing has run against a real model yet: every
+  test uses a mock. GPT-4o mini has never been called (no API key yet). Next: step 3 on dgx; Qwen2.5-VL-7B on dgx needs the same fp16 parity
   check before step 3; run Table 1 with `--stop-newline --max-tokens 100` for 2.0f.
 
 ## Next steps
@@ -197,7 +198,7 @@ efficient search, at the cost of more LLM calls.
   - [x] a. `_after_pop` hook + `QuorumAStar` stall fallback; identical metrics at `stall_k=0` on a fixed set of maps. *(2026-11-03, branch quorumastar)*
   - [x] b. `--method wastar --weight W` (= `DWAStar(w0=W, decay=1)`); w = 1 equals A*. *(2026-11-03)*
   - [x] c. Client: image message parts (cache stores an image hash), JSON mode with fallback. *(2026-11-03)*
-  - [~] d. `llmastar/quorumastar/` modules (METHOD.md §10; part 1 done: geometry, canonical, voting, pruning) + the §6 "all off" test (same messages and cache key as
+  - [x] d. `llmastar/quorumastar/` modules (METHOD.md §10) *(2026-11-03; all off = LLM-A* tested with a mock model)* + the §6 "all off" test (same messages and cache key as
         `PromptWaypointGenerator`, same results as `LLMAStar`). [x] e. CI pinned to `ubuntu-22.04`. *(2026-11-03)*
 - [ ] 3. End to end: `python -m llmastar.run --method quorumastar ...`. Baselines on qwen2.5-vl-7b-instruct (all 1,000):
       astar, wastar w = 1.5 / 2 / 3, llmastar standard / cot / repe; wastar ×3 also on llama-3-8b-instruct. All-off run:
@@ -321,6 +322,14 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-03 (KC = yumin0-0, branch `quorumastar`) · 2d part 2: config (flags, run-name variants), render (PNG, numbered
+  waypoints), parsing (JSON, fenced, fallback list, ids), views (text / corners / image / relations / paper), fewshot
+  (seeded pool of generated maps, gold = string-pulled A* corners; never an evaluation map), generator (concurrent
+  views, abstentions, vision judge, per-query log), runner (`--method quorumastar`, CSV `fallback, fallback_pop, calls,
+  prompt_tokens, completion_tokens, llm_seconds`). §6 test: all off sends LLM-A*'s exact request (same cache key, 0
+  new requests) and gives identical search results. Prompt sizes on the benchmark: corners view up to ~9.6k chars
+  (~3k tokens), fits 8,192. 110 tests pass. Note: commits up to 20b81a3 carry author KC <kichul0914@gmail.com>, the
+  same person as yumin0-0.
 - 2026-11-03 (KC, branch `quorumastar`) · 2c: `image_part`, `redact_images` (cache key and record hold a sha256),
   `json_mode` falls back when rejected (`tests/test_client_multimodal.py`). 2d part 1: `llmastar/quorumastar/`
   geometry (filter = the search's, checked cell by cell), canonical (§4.3), voting (§4.4), pruning (§4.5);

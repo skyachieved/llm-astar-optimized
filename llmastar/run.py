@@ -16,14 +16,17 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 
 from llmastar.benchmark import DEFAULT_DATASET, evaluate_llm_path, load_queries
 from llmastar.outputs import OUTPUTS_ROOT, RunPaths, run_name
-from llmastar.pather import AStar, DWAStar, LLMAStar
+from llmastar.pather import AStar, DWAStar, LLMAStar, QuorumAStar
+from llmastar.quorumastar.config import QuorumConfig, add_cli_args
 from llmastar.waypoints import REGISTRY, WaypointResult
 
-METHODS = ("astar", "dwastar", "wastar", "llm_only", "llmastar")
-LLM_METHODS = ("llm_only", "llmastar")
+METHODS = ("astar", "dwastar", "wastar", "llm_only", "llmastar", "quorumastar")
+LLM_METHODS = ("llm_only", "llmastar", "quorumastar")
 QUERY_KEYS = ("start", "goal", "range_x", "range_y", "horizontal_barriers", "vertical_barriers")
 CSV_FIELDS = ["map_id", "sg_idx", "start", "goal", "method", "prompt", "model", "operation", "storage", "length",
-              "valid", "valid_lenient", "parse_ok", "n_waypoints", "n_targets", "seconds", "error", "llm_error"]
+              "valid", "valid_lenient", "parse_ok", "n_waypoints", "n_targets", "seconds", "error", "llm_error",
+              "fallback", "fallback_pop", "calls", "prompt_tokens", "completion_tokens", "llm_seconds"]
+QUORUM_COLUMNS = ("calls", "prompt_tokens", "completion_tokens", "llm_seconds")
 
 
 def log(message):
@@ -91,6 +94,8 @@ def search_one(job):
             result = DWAStar(**options).searching(query, filepath=plot_path)
         elif method == "llmastar":
             result = LLMAStar().searching(query, filepath=plot_path, waypoints=waypoints)
+        elif method == "quorumastar":
+            result = QuorumAStar(**options).searching(query, filepath=plot_path, waypoints=waypoints)
         else:
             result = evaluate_llm_path(query, waypoints)
         result["error"] = ""
@@ -152,6 +157,7 @@ def parse_args(argv=None):
                         "--no-dwa-rekey fixes each priority at push time")
     p.add_argument("--dwa-min-weight", type=float, default=1.0,
                    help="Dynamic WA*: lower bound of the weight (0 lets it decay below 1)")
+    add_cli_args(p)
     p.add_argument("--dataset", default=str(DEFAULT_DATASET))
     p.add_argument("--out", default=str(OUTPUTS_ROOT), help="outputs root")
     p.add_argument("--cache-dir", default=".cache/llm")
@@ -190,11 +196,17 @@ def main(argv=None):
     selected = parse_ids(args.queries)
     queries = [q for q in load_queries(args.dataset) if not selected or matches(selected, q)][:args.limit]
     is_llm = args.method in LLM_METHODS
+    if args.method == "quorumastar":
+        args.generator = "quorumastar"
     tag = (args.prompt if args.generator == "prompt" else args.generator) if is_llm else None
+    if args.method == "quorumastar":
+        tag = None  # run name quorumastar[-variant]
     if args.method == "dwastar":
         variant = dwa_variant(args)
     elif args.method == "wastar":
         variant = f"w{args.weight:g}"  # wastar-w1.5, wastar-w2, wastar-w3
+    elif args.method == "quorumastar":
+        variant = "-".join(v for v in (QuorumConfig.from_args(args).variant(), llm_variant(args)) if v) or None
     elif is_llm:
         variant = llm_variant(args)
     else:
@@ -219,6 +231,8 @@ def main(argv=None):
                    "rekey": args.dwa_rekey, "min_weight": args.dwa_min_weight}
     elif args.method == "wastar":
         options = wastar_options(args.weight)
+    elif args.method == "quorumastar":
+        options = {"stall_k": args.stall_k, "stall_min": args.stall_min}
     else:
         options = {}
     if args.plot:
@@ -241,6 +255,9 @@ def main(argv=None):
             "n_targets": len(result["llm_output"]) if "llm_output" in result else "",
             "seconds": result["seconds"], "error": result["error"],
             "llm_error": gen.raw.get("llm_error", "") if gen else "",
+            "fallback": "" if "fallback" not in result else int(result["fallback"] is not None),
+            "fallback_pop": (result.get("fallback") or {}).get("pop", ""),
+            **{k: gen.raw.get(k, "") if gen else "" for k in QUORUM_COLUMNS},
         })
         if matches(traced, query):
             paths.traces.mkdir(parents=True, exist_ok=True)
