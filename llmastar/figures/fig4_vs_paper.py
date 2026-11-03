@@ -37,14 +37,14 @@ def plot_table1(model):
     for ax, (metric, title) in zip(axes, METRICS):
         for i, (run, _) in enumerate(RUNS):
             ours, paper = float(rows[run][metric]), float(rows[run][f"paper_{metric}"])
-            ax.plot([i, i], [ours, paper], color=MUTED, linewidth=1, zorder=1)
-            ax.scatter([i], [ours], s=64, color=OURS, edgecolors="white", linewidths=1.5, zorder=3,
+            ax.plot([i - 0.07, i + 0.07], [ours, paper], color=MUTED, linewidth=1, zorder=1)
+            ax.scatter([i - 0.07], [ours], s=64, color=OURS, edgecolors="white", linewidths=1.5, zorder=3,
                        label="Ours" if i == 0 else None)
-            ax.scatter([i], [paper], s=64, color=PAPER, edgecolors="white", linewidths=1.5, zorder=3,
+            ax.scatter([i + 0.07], [paper], s=64, color=PAPER, edgecolors="white", linewidths=1.5, zorder=3,
                        label="Paper" if i == 0 else None)
             ours_above = ours >= paper
-            for value, color, above in ((ours, OURS, ours_above), (paper, PAPER, not ours_above)):
-                ax.annotate(f"{value:.1f}", (i, value), textcoords="offset points", xytext=(0, 8 if above else -14),
+            for value, dx, above in ((ours, -0.07, ours_above), (paper, 0.07, not ours_above)):
+                ax.annotate(f"{value:.1f}", (i + dx, value), textcoords="offset points", xytext=(0, 8 if above else -14),
                             ha="center", fontsize=8, color=INK)
         ax.axhline(100, color=SERIES["astar"], linestyle="--", linewidth=1.5, zorder=0, label="A* (= 100)")
         ax.set_xticks(range(len(RUNS)), [label for _, label in RUNS], fontsize=8)

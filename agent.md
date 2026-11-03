@@ -81,9 +81,9 @@ sources in METHOD.md and docstrings.
 - Waiting on the user: run `scripts/get_qwen_vl.sh` (checks Qwen2.5-VL support in vLLM 0.11.0, then downloads the
   model), then serve it with `scripts/serve_local.sh qwen2.5-vl`.
 - 2026-11-03: the TAs answered (Constraints). A step 2.0 "grader-facing interface" is proposed below and waits for
-  the user's OK; do not start it before that. `outputs/` was found deleted from the working tree (uncommitted);
-  `git checkout -- outputs` restores it. `llmastar/figures/fig4_vs_paper.py` (ours vs. paper vs. A*) was written
-  but not yet rendered or committed.
+  the user's OK; do not start it before that. The comparison figures (ours vs. paper vs. A*) are done and committed:
+  `llmastar/figures/fig4_vs_paper.py` (Table 1 averages, and the Fig. 1 query) and `fig5_scalability_vs_paper.py`
+  (Fig. 3 with 3 lines per panel); outputs in `outputs/figures/fig4_*`, `fig5_*`.
 - Next: Step 2.0 (once approved), then 2a.
 
 ## Next steps
@@ -260,6 +260,12 @@ Add `--model qwen2.5-vl-7b-instruct` to any run to use (and write outputs for) t
    `prompt_set="gpt"`, so the unchanged baseline call sends the original prompt.
 
 ## Log
+- 2026-11-03 · Added `fig4_vs_paper.py` and `fig5_scalability_vs_paper.py`. The paper publishes Fig. 3 only as an image
+  (`docs/static/images/scalability.png` in SilinMeng0510/llm-astar), so its LLM-A* curve is read off the plot by eye
+  (about ±1; scales 1, 2, 4, 6, 8, 10) and labeled as such. Result: at 10× our LLM-A* is 73.0 ops / 45.2 storage
+  against the paper's ~36 / ~14, while A* is close (107.8 / 76.2 vs. ~115 / ~65), so our LLM-A* scales worse than
+  the paper's. A commit had renamed `outputs/` to `OPT/` and tracked `raw/`; Claude moved it back (`git mv OPT outputs`),
+  untracked `outputs/*/raw/` (still in earlier pushed history), and rendered the figures.
 - 2026-11-03 · TA answers recorded (Constraints, Decisions). Proposed step 2.0 (above); nothing implemented. Checked
   the original (9414ed8) client: `openai.api_key`, `gpt-3.5-turbo`, temperature 0, `stop=["\n"]`, `max_tokens=100`.
   The current `ChatGPT` always sends `top_p`, retries 5× with a 600 s timeout, and raises when `OPENAI_API_KEY` is
