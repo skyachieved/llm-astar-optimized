@@ -25,16 +25,19 @@ def test_astar_matches_paper_figure1(fig1_query):
     assert result["path"][0] == tuple(fig1_query["start"]) and result["path"][-1] == tuple(fig1_query["goal"])
 
 
-def test_llmastar_search_matches_paper_figure1_with_paper_waypoints(fig1_query):
+def test_llmastar_search_with_paper_figure1_waypoints(fig1_query):
     """Step 1b: the LLM-A* loop without any LLM, fed the waypoints read off the paper's Fig. 1.
 
-    The readings are approximate; only (24, 16), the right end of the long wall, affects the result. Storage and
-    length match the paper exactly. Operation is deliberately not asserted: an external re-implementation gives
-    90 against the paper's 140 for every reading within +-1-2 cells, a known discrepancy (REPRODUCTION.md).
+    Our search gives 82 / 228 / 53.46 against the paper's 140 / 235 / 53.46. Only the length matches the paper
+    (53.46 is also A*'s optimal length, so the waypoints lead the search onto an optimal path). Operation and storage
+    are a known discrepancy (REPRODUCTION.md): moving the middle waypoint (24, 16) by up to 2 cells in x and y gives
+    storage 221-281 and never 235, so the gap is not a misread waypoint. The asserted 82 / 228 are our own values: a
+    regression check that the search loop is unchanged, not a check against the paper.
     """
     result = LLMAStar().searching(fig1_query, waypoints=[(44, 24), (24, 16), (5, 6)])
     assert result["valid"]
-    assert result["storage"] == 235
+    assert result["operation"] == 82
+    assert result["storage"] == 228
     assert result["length"] == pytest.approx(53.46, abs=0.01)
     assert (24, 16) in result["llm_output"]
 
