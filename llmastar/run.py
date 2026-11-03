@@ -17,13 +17,13 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 from llmastar.benchmark import DEFAULT_DATASET, evaluate_llm_path, load_queries
 from llmastar.outputs import OUTPUTS_ROOT, RunPaths, run_name
 from llmastar.pather import AStar, DWAStar, LLMAStar
-from llmastar.waypoints import REGISTRY
+from llmastar.waypoints import REGISTRY, WaypointResult
 
 METHODS = ("astar", "dwastar", "wastar", "llm_only", "llmastar")
 LLM_METHODS = ("llm_only", "llmastar")
 QUERY_KEYS = ("start", "goal", "range_x", "range_y", "horizontal_barriers", "vertical_barriers")
 CSV_FIELDS = ["map_id", "sg_idx", "start", "goal", "method", "prompt", "model", "operation", "storage", "length",
-              "valid", "valid_lenient", "parse_ok", "n_waypoints", "n_targets", "seconds", "error"]
+              "valid", "valid_lenient", "parse_ok", "n_waypoints", "n_targets", "seconds", "error", "llm_error"]
 
 
 def log(message):
@@ -46,24 +46,33 @@ def matches(ids, query):
 def build_generator(args):
     from llmastar.model import ChatGPT
     client = ChatGPT(model=args.model, base_url=args.base_url, temperature=args.temperature,
-                     max_tokens=args.max_tokens, cache_dir=args.cache_dir, api_key=args.api_key,
-                     stop=["\n"] if args.stop_newline else None)
+                     max_tokens=args.max_tokens, cache_dir=args.cache_dir, api_key=getattr(args, "api_key", None),
+                     stop=["\n"] if getattr(args, "stop_newline", False) else None)
     return REGISTRY[args.generator](client, args)
 
 
+def _safe_generate(generator, query):
+    """generator.generate, with any exception turned into "no waypoints" so one query never stops the run."""
+    try:
+        return generator.generate(query)
+    except Exception as error:  # noqa: BLE001
+        return WaypointResult([], False, {"llm_error": f"{type(error).__name__}: {error}"[:500]})
+
+
 def generate_waypoints(generator, queries, workers):
-    """Call the generator for every query concurrently (vLLM batches them). An error aborts the run; finished
-    responses are already cached, so rerunning resumes where it stopped."""
+    """Call the generator for every query concurrently (vLLM batches them). A failed LLM call gives that query no
+    waypoints and an llm_error; failures are not cached, so rerunning the command retries only them."""
     results = [None] * len(queries)
-    start, cached = time.time(), 0
+    start, cached, failed = time.time(), 0, 0
     pool = ThreadPoolExecutor(max_workers=workers)
     try:
-        futures = {pool.submit(generator.generate, query): i for i, query in enumerate(queries)}
+        futures = {pool.submit(_safe_generate, generator, query): i for i, query in enumerate(queries)}
         for done, future in enumerate(as_completed(futures), 1):
             result = results[futures[future]] = future.result()
             cached += bool(result.raw.get("cached"))
+            failed += bool(result.raw.get("llm_error"))
             if done % 50 == 0 or done == len(queries):
-                log(f"[llm] {done}/{len(queries)} ({cached} from cache) {time.time() - start:.0f}s")
+                log(f"[llm] {done}/{len(queries)} ({cached} from cache, {failed} failed) {time.time() - start:.0f}s")
     except BaseException:
         pool.shutdown(wait=False, cancel_futures=True)
         raise
@@ -231,6 +240,7 @@ def main(argv=None):
             "parse_ok": int(gen.parse_ok) if gen else "", "n_waypoints": len(gen.waypoints) if gen else "",
             "n_targets": len(result["llm_output"]) if "llm_output" in result else "",
             "seconds": result["seconds"], "error": result["error"],
+            "llm_error": gen.raw.get("llm_error", "") if gen else "",
         })
         if matches(traced, query):
             paths.traces.mkdir(parents=True, exist_ok=True)
@@ -254,7 +264,12 @@ def main(argv=None):
     from llmastar.summary import summarize_file
     stats = summarize_file(paths.csv, paths.dir / "astar.csv")
     errors = sum(1 for r in rows if r["error"])
-    log(f"wrote {paths.csv}: n={stats['n']} valid={stats['valid']:.2f}% errors={errors} "
+    llm_errors = sum(1 for r in rows if r["llm_error"])
+    if llm_errors:
+        first = next(r["llm_error"] for r in rows if r["llm_error"])
+        log(f"WARNING: {llm_errors}/{len(rows)} LLM calls failed; those queries ran without waypoints. "
+            f"Rerun the same command to retry them. First error: {first}")
+    log(f"wrote {paths.csv}: n={stats['n']} valid={stats['valid']:.2f}% errors={errors} llm_errors={llm_errors} "
         + " ".join(f"{m}={stats[m]:.2f}" for m in ("operation", "storage", "length") if stats.get(m) is not None))
 
 
