@@ -162,14 +162,18 @@ efficient search, at the cost of more LLM calls.
 
 ## Current status
 - Phase: Quorum-A*. Reproduction (Table 1, Figs. 1–3, ours-vs-paper figures, 92bf3da) and step 1 are done.
-- Branch `quorumastar` (from main 42fa58c): steps 2a, 2b and 2e done with tests (`tests/test_wastar.py`,
+- 1b done: the test now pins our 82 / 228 / 53.46 (paper 140 / 235 / 53.46; gap in REPRODUCTION.md), PR #1
+  (`fix-1b-test`), merged into main (883e532). All tests pass.
+- Branch `quorumastar` (from main 883e532): steps 2a, 2b and 2e done with tests (`tests/test_wastar.py`,
   `tests/test_quorumastar_search.py`); weighted A* w = 1.5 / 2 / 3 run on all 1,000 queries (see Results).
-- **main is red:** the step-1b test (`tests/test_astar.py::test_llmastar_search_matches_paper_figure1_with_paper_waypoints`,
-  42fa58c) fails: storage 228, not 235 (operation 82, length 53.46). Decide: fix the expected value with a note, or
-  find the waypoint reading that gives 235. Until then CI on main fails.
-- Waiting on the user: GPU server access (Tailscale + account), then `scripts/get_qwen_vl.sh` and
-  `scripts/serve_local.sh qwen2.5-vl`.
-- Next: settle 1b, then 2.0 (client), then 2c / 2d.
+- Second site, dgx (Tailscale, user `ymkwon`, work under `/raid/slpr/ymkwon`, never in `~`): 8× V100-SXM2 16 GB,
+  driver 535 (CUDA 12.2). torch 2.8.0+cu128 runs there (sm_70 in the arch list); vLLM 0.11.0 in
+  `/raid/slpr/ymkwon/envs/vllm` serves Llama-3-8B-Instruct with `--dtype float16 --tensor-parallel-size 2
+  --gpu-memory-utilization 0.90 --max-num-seqs 32 --enforce-eager` (FlexAttention backend; without the last two
+  flags the warm-up runs out of memory on 16 GB). These are deviations from the bf16 A5000 Table 1 run.
+- dgx parity check passed (see Results): on the first 50 queries, fp16/V100 and the team's bf16/A5000 LLM-A* runs
+  agree on 45/50 queries and differ by < 1 point on the averages, so dgx can run the LLM experiments.
+- Next: 2.0 (client), then 2c / 2d; Qwen2.5-VL-7B on dgx needs the same fp16 parity check before step 3.
 
 ## Next steps
 - [x] 1. Read the repo and REPRODUCTION.md; write agent.md and METHOD.md. *(2026-11-03; layout = METHOD.md §10)*
@@ -298,20 +302,28 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   w = 3: 29.92 / 53.26 / 103.68; all valid 100%. So weighted A* with w = 2 expands fewer nodes (34.32) than LLM-A*
   standard (42.99) at a shorter path (102.02 vs 102.27), with no LLM call. This confirms the Research-rationale
   hypothesis on our own data; the external 34.3% can now be replaced by this file.
+- 2026-11-03 · dgx parity check · llama-3-8b-instruct, `llmastar --prompt standard --limit 50` · fp16 on 2× V100
+  (dgx, `outputs_dgx/`, not committed) vs. the committed bf16 A5000 run. Identical metrics on 45/50 queries; averages
+  (A* = 100) ops 45.36 vs 44.89, storage 62.41 vs 61.76, length 101.57 vs 101.60, no_targets 22.0% vs 22.0%, valid
+  100% both. The 5 differing queries go both ways (ops 505→453, 80→75, 346→407, 388→523, 111→140). 50 LLM calls took
+  69 s (eager mode). Reading: fp16 changes a few greedy answers, not the averages.
 - 2026-11-03 · Stall fallback on the Fig. 1 query with the paper's waypoints (`tests/test_quorumastar_search.py`):
   k = 2 fires at pop 80 (leg (24, 15) -> (5, 6): budget 56, 57 pops used), one pop before the target; k = 3 never
   fires. Result unchanged either way. Evidence that k = 2 is tight; the pilot (self-generated maps) decides k.
 
 ## Open questions
-- Q9. Step-1b test expects storage 235; the code gives 228 (see Current status). Which is right?
 - Q10. `--stall-k` default: 2 (METHOD.md) fired on the Fig. 1 query one pop early. Keep 2 and let the pilot decide, or
   change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-03 (KC) · 1b fixed (PR #1): test pins 82 / 228 / 53.46; no reading of (24, 16) within ±2 cells gives
+  storage 235. dgx set up (V100 16 GB, driver 535): torch 2.8.0+cu128 runs on sm_70; vLLM 0.11.0 serves
+  Llama-3-8B in fp16 on two GPUs (OOM on warm-up fixed with --max-num-seqs 32 --enforce-eager); 50-query parity
+  check vs. the bf16 run passed (45/50 identical, averages within 1 point).
 - 2026-11-03 (KC, branch `quorumastar`) · 2b: `--method wastar --weight W` in `run.py` (+ `tests/test_wastar.py`,
   fc04acb); 2a: `_after_pop` hook in `llm_a_star.py`, `pather/quorum_a_star/` with the stall fallback
   (+ `tests/test_quorumastar_search.py`, 2830268); 2e: CI on ubuntu-22.04 (9db5674). Ran wastar w = 1.5 / 2 / 3 on
-  all 1,000 queries and refreshed `summary.md` / `summary.csv`. Found the 1b test failing on main (storage 228 vs 235).
+  all 1,000 queries and refreshed `summary.md` / `summary.csv`. Found the 1b test failing on main (fixed in PR #1).
 - 2026-11-03 · Applied review (retry policy, pilot ground truth, hypothesis wording, Q6–Q8, incident-encoded corners,
   candidate `relations`; METHOD.md §11, README "Inspirations"). Rewrote this file as an agent prompt; recorded the
   environment constraints; rendered ours-vs-paper figures. Added the 1b test
