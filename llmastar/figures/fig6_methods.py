@@ -2,9 +2,9 @@
 (bottom, with weighted A* w = 2 as the no-LLM reference that agent.md requires next to every LLM result).
 
   python -m llmastar.figures.fig6_methods [--model qwen2.5-vl-7b-instruct] [--query 1:0]
-      [--llm-run llmastar_standard] [--quorum-run quorumastar] [--wastar-run wastar-w2]
+      [--llm-run llmastar_standard] [--quorum-run quorumastar] [--wastar-run wastar-w2] [--out outputs]
 
-Reads outputs/<model>/{astar,<runs>}.csv and traces/<run>/<map>_<sg>.json only; a run that does not exist yet is
+Reads <out>/<model>/{astar,<runs>}.csv and traces/<run>/<map>_<sg>.json only; a run that does not exist yet is
 drawn as an empty panel saying so (nothing is estimated). The averages use only the queries that every plotted run
 has and where all of them found a path, so the methods are compared on the same queries; n is in the subtitle.
 Writes outputs/figures/fig6_methods_<model>.{png,pdf}.
@@ -16,7 +16,8 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from llmastar.figures.common import INK, MUTED, draw_search, model_dir, model_slug, save, search_legend
+from llmastar.figures.common import INK, MUTED, draw_search, model_slug, save, search_legend
+from llmastar.outputs import OUTPUTS_ROOT
 
 # Fixed method order and colors (validated categorical slots 1-4: blue, yellow, orange, aqua); color follows the method.
 METHODS = [("astar", "A*", "#2a78d6"), ("wastar", "Weighted A* (w=2)", "#eda100"),
@@ -33,9 +34,9 @@ def _rows(path):
         return {(r["map_id"], r["sg_idx"]): r for r in csv.DictReader(f)}
 
 
-def _trace(model, run, map_id, sg_idx):
+def _trace(directory, run, map_id, sg_idx):
     import json
-    path = model_dir(model) / "traces" / run / f"{map_id}_{sg_idx}.json"
+    path = directory / "traces" / run / f"{map_id}_{sg_idx}.json"
     if not path.exists():
         return None
     with open(path) as f:
@@ -91,12 +92,14 @@ def main(argv=None):
     p.add_argument("--llm-run", default="llmastar_standard")
     p.add_argument("--quorum-run", default="quorumastar")
     p.add_argument("--wastar-run", default="wastar-w2")
+    p.add_argument("--out", default=str(OUTPUTS_ROOT), help="outputs root holding <model>/ (e.g. outputs_gpt)")
     args = p.parse_args(argv)
     map_id, sg_idx = args.query.split(":")
     names = {"astar": "astar", "wastar": args.wastar_run, "llmastar": args.llm_run, "quorumastar": args.quorum_run}
-    runs = {m: _rows(model_dir(args.model) / f"{run}.csv") for m, run in names.items()}
+    directory = Path(args.out) / model_slug(args.model)
+    runs = {m: _rows(directory / f"{run}.csv") for m, run in names.items()}
     if runs["astar"] is None:
-        raise SystemExit(f"{model_dir(args.model) / 'astar.csv'} not found; run `python -m llmastar.run --method astar "
+        raise SystemExit(f"{directory / 'astar.csv'} not found; run `python -m llmastar.run --method astar "
                          f"--model {args.model}` first.")
 
     fig = plt.figure(figsize=(12, 7.4), facecolor=SURFACE)
@@ -104,10 +107,10 @@ def main(argv=None):
     grid = fig.add_gridspec(3, 3, height_ratios=[1, 0.14, 1.05], hspace=0.28, wspace=0.18, bottom=0.1, top=0.96)
 
     # Top: the three searches on one query.
-    traces = {m: _trace(args.model, names[m], map_id, sg_idx) for m in ("astar", "llmastar", "quorumastar")}
+    traces = {m: _trace(directory, names[m], map_id, sg_idx) for m in ("astar", "llmastar", "quorumastar")}
     like = next((t for t in traces.values() if t), None)
     if like is None:
-        raise SystemExit(f"no trace for query {args.query} in {model_dir(args.model) / 'traces'}")
+        raise SystemExit(f"no trace for query {args.query} in {directory / 'traces'}")
     for col, method in enumerate(("astar", "llmastar", "quorumastar")):
         ax = fig.add_subplot(grid[0, col])
         label = dict((m, lab) for m, lab, _ in METHODS)[method]

@@ -8,7 +8,7 @@ FEWSHOT = ("per-view", "shared", "none", "paper")
 
 @dataclass(frozen=True)
 class QuorumConfig:
-    views: tuple = ("text", "corners", "image")
+    views: tuple = ("text", "corners", "relations")  # third view chosen by the pilot (METHOD.md 11, 2026-11-04)
     fewshot: str = "per-view"
     n_shots: int = 3
     fewshot_seed: int = 0

@@ -13,7 +13,7 @@ and had to be dropped. Some kept waypoints led the search the wrong way.
 **The idea.** Quorum-A\* picks waypoints in four stages:
 
 1. Several LLM instances propose waypoints independently. Each one sees the map in a different encoding, for
-   example coordinate text, a list of wall corners, or an image.
+   example coordinate text, a graph of wall corners, or the walls described in words.
 2. Only the waypoints the instances agree on are kept, and an instance can veto another's waypoints.
 3. A multimodal (vision) model checks the remaining path against an image of the map, and trims or rejects
    waypoints that don't hold up.

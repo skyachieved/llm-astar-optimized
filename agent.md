@@ -73,8 +73,8 @@ the damage when they are shared anyway.
 query (map + start/goal)
    ├─► V1 text     ─┐  one LLM call each, temperature 0, concurrent; a view ABSTAINS on error,
    ├─► V2 corners  ─┤  unsupported input (e.g. no image) or unparsable answer
-   ├─► V3 image    ─┘  (candidate V4 relations: walls in words; --views picks any subset;
-                       default text,corners,image until the pilot decides)
+   ├─► V3 relations ┘  (walls in words; candidate V4 image: a PNG; --views picks any subset;
+                       default text,corners,relations, chosen by the pilot 2026-11-04)
                     ▼
    canonicalize: snap to a free cell (±2), then to the nearest corner node (≤3)      --no-snap
                     ▼
@@ -270,6 +270,11 @@ efficient search, at the cost of more LLM calls.
 - 2026-11-03 · Pilot model: gpt-4o-mini instead of the local model (dgx GPUs taken; it is the course's model, about
   $0.007 per query). The pilot run asks all four candidate views at once (5 calls per query, above the default 4,
   measurement only); vote matching radius is measured offline from the same answers before any default changes · KC.
+- 2026-11-04 · Default views text,corners,relations with the vision judge (4 calls per query). Pilot only, 3 views +
+  judge (A* = 100): text,corners,relations 23.38 / 48.30 / 103.31; text,corners,image 24.05 / 49.04 / 103.10; the
+  difference is small (n = 50), so the tie goes to relations' higher solo quality (62.4% vs 57.8%) and lower cost (no
+  image view; the judge is then the only image call). The judge stays: it keeps few waypoints but they beat weighted
+  A* (75.2 ops on the 7 queries that kept one), and every other query runs exactly as weighted A*. Resolves Q11 · KC.
 - 2026-11-03 · Views: corners = visibility-graph incident adjacency list (Fatemi et al., arXiv 2310.04560, incident
   encoding best for most prompting methods; Li et al. 2026, arXiv 2604.10690, adjacency lists beat grids on mazes);
   candidate view `relations` (walls and passages in words, coordinate answers); image kept; default stays
@@ -356,15 +361,16 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   61.0% with 4 views), so exact-cell voting stays. Vision judge: catch 88.9% (24/27 bad), false alarm 83.0% (44/53
   good): it keeps few waypoints, but the ones it keeps beat weighted A*. 245 calls, 3.81 M tokens (76k per query).
   Reading: Quorum-A* removes LLM-A*'s loss (36 -> 24 ops) and matches, not beats, the no-LLM weighted A* overall.
+- 2026-11-04 · Pilot, 3 views + judge (the 4-call budget) · same maps: text,corners,image 24.05 / 49.04 / 103.10,
+  waypoints kept on 10/50 (ops 94.1 vs weighted A*); text,corners,relations 23.38 / 48.30 / 103.31, kept on 7/50
+  (ops 75.2, storage 87.0 vs weighted A*); every query without waypoints equals weighted A* (100.0).
 
 ## Open questions
-- Q11 (pilot, 2026-11-04). Defaults for the 1,000-query run, to be fixed from the pilot only: (a) third view image
-  vs relations under the 4-call budget (3 views + judge), measured by one more pilot run each; (b) keep the vision
-  judge (best overall, conservative) or drop it (cheaper, 4 views fit the budget).
 - Q10. `--stall-k` default: 2 (METHOD.md) fired on the Fig. 1 query one pop early. Keep 2 and let the pilot decide, or
   change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-04 (yumin0-0) · Default views text,corners,relations (Decisions); METHOD.md 4.1 and 5, README overview.
 - 2026-11-04 (yumin0-0) · Pilot on gpt-4o-mini (see Results); `pilot report` now also splits every LLM run against
   weighted A* by whether the search kept waypoints (`split_table`, `tests/test_quorumastar_pilot.py`).
 - 2026-11-03 (yumin0-0) · Step 3 on gpt-4o-mini (see Results) and the pilot tooling: `llmastar/quorumastar/pilot.py`

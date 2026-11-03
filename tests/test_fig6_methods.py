@@ -47,3 +47,11 @@ def test_averages_use_the_same_queries(outputs):
     assert n == 20  # the 20 queries the shortest run has, not 40
     assert means["astar"] == {"operation": 100, "storage": 100, "length": 100}
     assert "wastar" not in means  # missing, so not drawn and not estimated
+
+
+def test_out_reads_another_outputs_root(outputs):
+    other = outputs.parent.parent / "outputs_gpt"
+    shutil.copytree(outputs.parent, other)
+    shutil.rmtree(outputs)  # only <out>/fake-model holds the runs now
+    fig6_methods.main(["--model", "fake-model", "--out", str(other)])
+    assert (outputs.parent / "figures" / "fig6_methods_fake-model.png").exists()  # figures still go to outputs/
