@@ -222,7 +222,8 @@ efficient search, at the cost of more LLM calls.
 - [ ] 5. Full runs (1,000) and ablations: each view alone vs. all; quorums; vision; snap; fallback; few-shot
       shared / per-view / none; CoT; roles.
 - [ ] 6. Harder generated maps (mazes, more walls, 2–3× size; fixed seed; held-out split never used for defaults) and a
-      second model.
+      second model. *(2026-11-04: `python -m llmastar.generate_maps` (dense, large, zigzag; 100 each, seed 1, committed
+      in `dataset/generated/`); runs in `experiments/gpt-4o-mini.sh hard`.)*
 - [ ] 7. Report support: export what the report needs from `outputs/` only: Table 1 vs. paper; Quorum-A* vs. A*, LLM-A*
       and weighted A* (ops vs. length trade-off with the weighted-A* frontier); ablation bars; failure cases and failed
       experiments, explained; cost table (calls, tokens, seconds per query); reproducibility appendix (models, decoding
@@ -275,6 +276,11 @@ efficient search, at the cost of more LLM calls.
   difference is small (n = 50), so the tie goes to relations' higher solo quality (62.4% vs 57.8%) and lower cost (no
   image view; the judge is then the only image call). The judge stays: it keeps few waypoints but they beat weighted
   A* (75.2 ops on the 7 queries that kept one), and every other query runs exactly as weighted A*. Resolves Q11 · KC.
+- 2026-11-04 · All gpt-4o-mini experiments run from `experiments/gpt-4o-mini.sh` (main, free ablations, ablations,
+  Table 1 rows, hard maps). Ablations that need new LLM calls use the first 300 benchmark queries (maps 0-29), at
+  about $1.5 per run instead of about $5; the main comparison stays on all 1,000. Hard-map kinds and their parameters
+  (dense, large = 2x side, zigzag = serpentine walls) were fixed before any run on them and never choose a default.
+  A run whose raw log shows a failed call is rerun (cached answers reused) so no result hides an error · KC.
 - 2026-11-03 · Views: corners = visibility-graph incident adjacency list (Fatemi et al., arXiv 2310.04560, incident
   encoding best for most prompting methods; Li et al. 2026, arXiv 2604.10690, adjacency lists beat grids on mazes);
   candidate view `relations` (walls and passages in words, coordinate answers); image kept; default stays
@@ -370,6 +376,10 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-04 (yumin0-0) · `experiments/gpt-4o-mini.sh` (every gpt-4o-mini run, with a rerun on failed calls);
+  `llmastar/generate_maps.py` + `dataset/generated/{dense,large,zigzag,pilot}.json` (`tests/test_generate_maps.py`);
+  on the first 15 maps weighted A* (w = 2) needs 33.6% / 16.4% / 100.0% of A*'s operations on dense / large / zigzag,
+  so zigzag is the case where weighted A* gains nothing. Main 1,000-query run on gpt-4o-mini started 00:17.
 - 2026-11-04 (yumin0-0) · Default views text,corners,relations (Decisions); METHOD.md 4.1 and 5, README overview.
 - 2026-11-04 (yumin0-0) · Pilot on gpt-4o-mini (see Results); `pilot report` now also splits every LLM run against
   weighted A* by whether the search kept waypoints (`split_table`, `tests/test_quorumastar_pilot.py`).

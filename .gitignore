@@ -138,3 +138,8 @@ outputs/*/plots/
 logs/
 # Local helper scripts for our GPU server (not published; README.md has the plain commands)
 scripts/
+
+# Experiment outputs outside outputs/ (dgx runs) and their logs; selected results are copied into outputs/
+/outputs_*/
+/pilot/
+/experiments_*.log

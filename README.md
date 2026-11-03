@@ -202,6 +202,17 @@ python -m llmastar.figures
 - To try a quick pilot first, add `--limit 50` to the LLM runs (the first 50 queries).
 - These commands overwrite the results committed in `outputs/`; `git checkout outputs` brings them back.
 
+**3. Quorum-A\* on GPT-4o mini** (the course's model; no GPU needed). One script runs every experiment of the
+report: the four methods on all 1,000 queries, the ablations (first 300 queries), the Table 1 rows on GPT-4o mini,
+and the generalization check on harder generated maps (`dataset/generated/`, made by `python -m
+llmastar.generate_maps`). It reruns any command whose raw log shows a failed call (rate limit, timeout); cached
+answers are reused, so a rerun costs nothing.
+
+```bash
+read -rsp "OpenAI key: " OPENAI_API_KEY; echo; export OPENAI_API_KEY   # never written to disk
+bash experiments/gpt-4o-mini.sh all 2>&1 | tee experiments_gpt.log      # or main | free | ablations | table1 | hard
+```
+
 ## What's where
 
 ```
