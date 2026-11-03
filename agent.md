@@ -46,6 +46,17 @@ Rules that follow:
 **Grader environment**: Ubuntu 22.04, Python 3.11, only `pip install -r requirements.txt`, no GPU, no API keys provided.
 The key comes from `OPENAI_API_KEY` (optional `--api-key`). Never crash on LLM failures.
 
+**TA clarifications (2026-11-03)**
+1. Evaluation uses the baseline code's LLM connection method and runs our code with the instructions and scripts in
+   our README. So the README is the grading interface, and the baseline mechanism must keep working:
+   `LLMAStar(llm='gpt', prompt=...)`, with the key from `openai.api_key` or `OPENAI_API_KEY`. CDA* uses the same connection.
+2. No time or memory limits for now; a timeout may be announced later.
+3. The additional robustness LLMs are not disclosed. Assume nothing about a model: it may lack image input, JSON mode,
+   `seed` or `temperature`.
+4. No API credits. Any LLM may be used during development; the final evaluation uses the designated backbone model.
+5. Table 1 may use another LLM, but the experimental setup and the number of evaluation samples (all 1,000 queries)
+   must match the paper.
+
 **Never do**
 - Tune or pick defaults on the evaluation maps (`dataset/environment_50_30.json`) or on the held-out harder split.
   Few-shot examples come only from self-generated maps.
@@ -69,11 +80,25 @@ sources in METHOD.md and docstrings.
   Committed directly to main on 2026-10-30, together with the user's pending README.md change.
 - Waiting on the user: run `scripts/get_qwen_vl.sh` (checks Qwen2.5-VL support in vLLM 0.11.0, then downloads the
   model), then serve it with `scripts/serve_local.sh qwen2.5-vl`.
-- Next: Step 2.
+- 2026-11-03: the TAs answered (Constraints). A step 2.0 "grader-facing interface" is proposed below and waits for
+  the user's OK; do not start it before that. `outputs/` was found deleted from the working tree (uncommitted);
+  `git checkout -- outputs` restores it. `llmastar/figures/fig4_vs_paper.py` (ours vs. paper vs. A*) was written
+  but not yet rendered or committed.
+- Next: Step 2.0 (once approved), then 2a.
 
 ## Next steps
 - [x] 1. Read the repo and REPRODUCTION.md; write agent.md (with the Table 1 results and their paths) and METHOD.md
       (pseudocode, all defaults, citations). Propose the module layout. *(2026-10-29; layout = METHOD.md §10)*
+- [ ] 2.0 Grader-facing interface *(PROPOSED 2026-11-03, awaiting the user's OK; scope in the Log entry of that date)*.
+      One commit each:
+  - [ ] a. Connection: `ChatGPT` takes the key from `api_key` arg, else `openai.api_key`, else `OPENAI_API_KEY`
+        (passed explicitly); `LLMAStar(llm='gpt')` keeps working and uses the paper's GPT prompt set.
+  - [ ] b. Robust client: per-call timeout 60 s with 0 retries by default, drop-and-retry on rejected sampling
+        parameters, errors returned not raised (never cached), `--stop-newline` flag.
+  - [ ] c. `PromptWaypointGenerator` / runner: an LLM failure becomes "no waypoints" plus a logged `llm_error`.
+  - [ ] d. Tests with a mock text-only model (no network).
+  - [ ] e. README rewritten as the grading interface; `table1` wrapper; `--dataset` accepts a single query file.
+  - [ ] f. REPRODUCTION.md: setup deviation for `stop="\n"`, and Table 1 reported both ways.
 - [ ] 2. Shared infrastructure: views, canonicalization, voting, pruning, safety net, each with pytest unit tests using
       a mock LLM (no network), including a test that "all off" reproduces LLM-A* exactly. Add a GitHub Actions
       workflow that runs pytest on Python 3.11 with only `pip install -r requirements.txt`, mirroring the grader.
@@ -81,8 +106,8 @@ sources in METHOD.md and docstrings.
   - [ ] a. `_after_pop` no-op hook + `CDAStar` stall fallback; test: identical operation/storage/length with
         `stall_k=0` on a fixed set of maps (METHOD.md §7).
   - [ ] b. `--method wastar --weight W` (= `DWAStar(w0=W, decay=1)`); test: w = 1 equals A*.
-  - [ ] c. Client: `api_key`, image message parts (cache stores an image hash), JSON mode with fallback, LLM errors
-        logged and never raised to the runner.
+  - [ ] c. Client: image message parts (cache stores an image hash), JSON mode with fallback. *(api key, error
+        handling and sampling-parameter fallback moved to 2.0 a–c)*
   - [ ] d. `llmastar/cdastar/` modules (METHOD.md §10), each with mock-LLM tests, including the §6 "all off" test
         (same messages and cache key as `PromptWaypointGenerator`, same search results as `LLMAStar`).
   - [ ] e. CI: pin `.github/workflows/test.yml` (exists, `ubuntu-latest`) to `ubuntu-22.04`.
@@ -132,6 +157,24 @@ sources in METHOD.md and docstrings.
   Heuristic Search on Path Planning", arXiv:2601.01910 (v2, 22 Jan 2026), code github.com/langkhachhoha/MMP-ASTAR.
   Checked against arxiv.org/html/2601.01910v2: a single VLM judge, prompted once per map, keeps or discards numbered
   waypoints and never adds any; the waypoint heuristic term decays by α^k (α = 0.7). Qwen2.5-VL is among its VLMs.
+- 2026-11-03 · (TA1) Keep the baseline connection unchanged: `LLMAStar(llm='gpt', prompt=...)` must work, and the key
+  is read from `openai.api_key` or `OPENAI_API_KEY`, passed explicitly to the openai>=1.x client. CDA* uses the same
+  client. Model name and base URL stay configurable (`--model`, `--base-url`, `OPENAI_BASE_URL`) · TA answer.
+- 2026-11-03 · (TA1) The README is the grading interface: one entry point and exact commands for install, key, running
+  CDA* on a query/map file, and reproducing Table 1, each working in a fresh Python 3.11 env with only
+  `pip install -r requirements.txt` · TA answer + user instruction.
+- 2026-11-03 · (TA3) Never require image input, JSON mode, `seed` or `temperature`. The image view and vision check
+  abstain quietly if images are rejected, parsing works without JSON mode, and the text and corners views work alone.
+  Tested with a mock text-only model · user instruction.
+- 2026-11-03 · (TA2) Per-call timeout 60 s and at most 4 LLM calls per query by default (3 views + 1 vision judge). On
+  timeout or error the voter abstains; if nothing is left the search runs with no waypoints. Wall time per query is
+  logged. No other time or memory limit applies for now · user instruction.
+- 2026-11-03 · (TA5) Reported Table 1 uses all 1,000 queries, the paper's prompts and metrics. `stop="\n"` (used by the
+  original GPT client) stays removed for the reported run because it would cut multi-line CoT/RePE answers; this is
+  recorded in REPRODUCTION.md as a setup deviation, and a flag restores it so Table 1 can be reported both ways ·
+  user instruction.
+- 2026-11-03 · (TA4) Development may use any LLM; the final evaluation uses the designated backbone, so nothing may
+  depend on one model's features · TA answer.
 - 2026-10-29 · Weighted A* is `DWAStar(w0=w, decay=1)` (constant weight), not a new search · no new search code.
 - 2026-10-29 · Canonical waypoint id = its (snapped) cell, so coordinate and node-id views vote directly · METHOD.md §4.3.
 
@@ -158,6 +201,9 @@ sources in METHOD.md and docstrings.
   `no_targets` = % of queries with `n_targets == 2`.
 - Tests: `pytest -q tests` (env `llmastar`). CI: `.github/workflows/test.yml` (ubuntu-latest, Python 3.11,
   `pip install -r requirements.txt`, `pytest -q tests`) on pushes and PRs to main.
+- Git remote: `origin` = `git@github.com:skyachieved/llm-astar-optimized.git` (SSH since 2026-10-30), so a plain
+  `git push` works from any shell, tmux included. The old HTTPS remote failed in shells that had VS Code's stale
+  `GIT_ASKPASS`; `scripts/git_push.sh` worked around that and is no longer needed.
 - Local scripts (git-ignored): `scripts/serve_local.sh [llama3|qwen2.5-vl|DIR] [name]` (log
   `logs/vllm_<name>.log`), `scripts/get_qwen_vl.sh` (log `logs/get_qwen_vl.log`), `scripts/setup_vllm_env.sh`.
 
@@ -206,10 +252,20 @@ Add `--model qwen2.5-vl-7b-instruct` to any run to use (and write outputs for) t
 3. [answered 2026-10-29] Fallback inside the search → one no-op hook; see Decisions (Q3).
 4. [answered 2026-10-29] Model for the image view and the vision judge → Qwen2.5-VL-7B-Instruct; see Decisions (Q4).
 5. [answered 2026-10-29] MMP-A* reference → arXiv:2601.01910; see Decisions (Q5).
+   (The TA answers of 2026-11-03 close no listed question; they are in Constraints and Decisions.)
+6. [user] With `--stop-newline`, should we also restore the original client's `max_tokens=100`, or change only `stop`?
+   Proposal: only `stop`, with a separate `--max-tokens`, so the two effects can be told apart.
+7. [user] `LLMAStar(llm='gpt')` currently builds `PromptWaypointGenerator(llm, prompt)`, whose default is the
+   Llama-3 dialogue (`prompt_set="llama"`), but the baseline used the GPT prompt. Proposal: `llm='gpt'` uses
+   `prompt_set="gpt"`, so the unchanged baseline call sends the original prompt.
 
 ## Log
+- 2026-11-03 · TA answers recorded (Constraints, Decisions). Proposed step 2.0 (above); nothing implemented. Checked
+  the original (9414ed8) client: `openai.api_key`, `gpt-3.5-turbo`, temperature 0, `stop=["\n"]`, `max_tokens=100`.
+  The current `ChatGPT` always sends `top_p`, retries 5× with a 600 s timeout, and raises when `OPENAI_API_KEY` is
+  unset; `run.py` aborts on any generator error. Also found: `outputs/` deleted in the working tree (not by Claude).
 - 2026-10-30 · The user committed step 1 (agent.md, METHOD.md, CLAUDE.md, README.md) to main and pushed it.
-  Implementation starts another day at step 2a. `scripts/git_push.sh` now pushes the current branch.
+  Implementation starts another day at step 2a. The user switched `origin` to SSH, and plain `git push` now works.
 - 2026-10-29 · CDA* kickoff session. Created agent.md. Fixed against the code: figure code is in `llmastar/figures/`
   (`scripts/` is git-ignored), and a CI workflow already exists (`ubuntu-latest`). Recorded the user's answers to Q1–Q5;
   verified MMP-A* on arXiv and Qwen2.5-VL in vLLM 0.11.0's docs. `serve_local.sh` now takes the model as an argument
