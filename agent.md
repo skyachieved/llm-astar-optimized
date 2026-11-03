@@ -162,9 +162,14 @@ efficient search, at the cost of more LLM calls.
 
 ## Current status
 - Phase: Quorum-A*. Reproduction (Table 1, Figs. 1–3, ours-vs-paper figures, 92bf3da) and step 1 are done.
-- Step 1b: test written (`tests/test_astar.py`), waiting for the user's `pytest` run; then the REPRODUCTION.md note.
-- Waiting on the user: `scripts/get_qwen_vl.sh`, then `scripts/serve_local.sh qwen2.5-vl`.
-- Next: finish 1b, then 2.0, then 2a.
+- Branch `quorumastar` (from main 42fa58c): steps 2a, 2b and 2e done with tests (`tests/test_wastar.py`,
+  `tests/test_quorumastar_search.py`); weighted A* w = 1.5 / 2 / 3 run on all 1,000 queries (see Results).
+- **main is red:** the step-1b test (`tests/test_astar.py::test_llmastar_search_matches_paper_figure1_with_paper_waypoints`,
+  42fa58c) fails: storage 228, not 235 (operation 82, length 53.46). Decide: fix the expected value with a note, or
+  find the waypoint reading that gives 235. Until then CI on main fails.
+- Waiting on the user: GPU server access (Tailscale + account), then `scripts/get_qwen_vl.sh` and
+  `scripts/serve_local.sh qwen2.5-vl`.
+- Next: settle 1b, then 2.0 (client), then 2c / 2d.
 
 ## Next steps
 - [x] 1. Read the repo and REPRODUCTION.md; write agent.md and METHOD.md. *(2026-11-03; layout = METHOD.md §10)*
@@ -182,11 +187,11 @@ efficient search, at the cost of more LLM calls.
         reproduce Table 1 with one command, output format); `--dataset` accepts a single query file.
   - [ ] f. REPRODUCTION.md: `stop="\n"` / `max_tokens` as setup deviations; Table 1 reported both ways.
 - [ ] 2. Shared infrastructure, each with mock-LLM pytest tests and a CI workflow (Python 3.11, requirements.txt only):
-  - [ ] a. `_after_pop` hook + `QuorumAStar` stall fallback; identical metrics at `stall_k=0` on a fixed set of maps.
-  - [ ] b. `--method wastar --weight W` (= `DWAStar(w0=W, decay=1)`); w = 1 equals A*.
+  - [x] a. `_after_pop` hook + `QuorumAStar` stall fallback; identical metrics at `stall_k=0` on a fixed set of maps. *(2026-11-03, branch quorumastar)*
+  - [x] b. `--method wastar --weight W` (= `DWAStar(w0=W, decay=1)`); w = 1 equals A*. *(2026-11-03)*
   - [ ] c. Client: image message parts (cache stores an image hash), JSON mode with fallback.
   - [ ] d. `llmastar/quorumastar/` modules (METHOD.md §10) + the §6 "all off" test (same messages and cache key as
-        `PromptWaypointGenerator`, same results as `LLMAStar`). e. CI pinned to `ubuntu-22.04`.
+        `PromptWaypointGenerator`, same results as `LLMAStar`). [x] e. CI pinned to `ubuntu-22.04`. *(2026-11-03)*
 - [ ] 3. End to end: `python -m llmastar.run --method quorumastar ...`. Baselines on qwen2.5-vl-7b-instruct (all 1,000):
       astar, wastar w = 1.5 / 2 / 3, llmastar standard / cot / repe; wastar ×3 also on llama-3-8b-instruct. All-off run:
       0 new LLM requests and metrics equal to `llmastar_standard.csv`.
@@ -288,12 +293,25 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   (about ±1), not the authors' data. Three of our 10 queries get no LLM-A* saving at 10×; cause not yet tested.
 - 2026-10-29 · `llmastar_standard` had `no_targets` = 25.40% (those queries ran as weighted A*, w = 2) ·
   `outputs/llama-3-8b-instruct/summary.md`.
-- Weighted A* (w = 1.5, 2, 3): **not run yet** (step 3).
+- 2026-11-03 · Weighted A* (constant w) · all 1,000 queries · `outputs/llama-3-8b-instruct/wastar-w{1.5,2,3}.csv`,
+  `summary.md`. Ops / storage / length (A* = 100): w = 1.5: 40.06 / 60.26 / 100.74; w = 2: 34.32 / 56.23 / 102.02;
+  w = 3: 29.92 / 53.26 / 103.68; all valid 100%. So weighted A* with w = 2 expands fewer nodes (34.32) than LLM-A*
+  standard (42.99) at a shorter path (102.02 vs 102.27), with no LLM call. This confirms the Research-rationale
+  hypothesis on our own data; the external 34.3% can now be replaced by this file.
+- 2026-11-03 · Stall fallback on the Fig. 1 query with the paper's waypoints (`tests/test_quorumastar_search.py`):
+  k = 2 fires at pop 80 (leg (24, 15) -> (5, 6): budget 56, 57 pops used), one pop before the target; k = 3 never
+  fires. Result unchanged either way. Evidence that k = 2 is tight; the pilot (self-generated maps) decides k.
 
 ## Open questions
-None open. Q6–Q8 were answered on 2026-11-03 (see Decisions).
+- Q9. Step-1b test expects storage 235; the code gives 228 (see Current status). Which is right?
+- Q10. `--stall-k` default: 2 (METHOD.md) fired on the Fig. 1 query one pop early. Keep 2 and let the pilot decide, or
+  change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-03 (KC, branch `quorumastar`) · 2b: `--method wastar --weight W` in `run.py` (+ `tests/test_wastar.py`,
+  fc04acb); 2a: `_after_pop` hook in `llm_a_star.py`, `pather/quorum_a_star/` with the stall fallback
+  (+ `tests/test_quorumastar_search.py`, 2830268); 2e: CI on ubuntu-22.04 (9db5674). Ran wastar w = 1.5 / 2 / 3 on
+  all 1,000 queries and refreshed `summary.md` / `summary.csv`. Found the 1b test failing on main (storage 228 vs 235).
 - 2026-11-03 · Applied review (retry policy, pilot ground truth, hypothesis wording, Q6–Q8, incident-encoded corners,
   candidate `relations`; METHOD.md §11, README "Inspirations"). Rewrote this file as an agent prompt; recorded the
   environment constraints; rendered ours-vs-paper figures. Added the 1b test
