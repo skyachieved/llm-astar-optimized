@@ -50,7 +50,8 @@ def build_generator(args):
     from llmastar.model import ChatGPT
     client = ChatGPT(model=args.model, base_url=args.base_url, temperature=args.temperature,
                      max_tokens=args.max_tokens, cache_dir=args.cache_dir, api_key=getattr(args, "api_key", None),
-                     stop=["\n"] if getattr(args, "stop_newline", False) else None)
+                     stop=["\n"] if getattr(args, "stop_newline", False) else None,
+                     timeout=getattr(args, "timeout", 60.0), model_sampling=getattr(args, "model_sampling", False))
     return REGISTRY[args.generator](client, args)
 
 
@@ -138,6 +139,11 @@ def parse_args(argv=None):
     p.add_argument("--temperature", type=float, default=0.0)
     p.add_argument("--max-tokens", type=int, default=2048,
                    help="completion token limit (the original repository used 100)")
+    p.add_argument("--model-sampling", action="store_true",
+                   help="send no temperature / top_p / seed / response_format: the model's own sampling (for models "
+                        "that fix it, e.g. Claude Opus 5.5 with always-on thinking); runs keep their names, so keep "
+                        "them in their own --out folder")
+    p.add_argument("--timeout", type=float, default=60.0, help="seconds per LLM request")
     p.add_argument("--stop-newline", action="store_true",
                    help='send stop="\\n" as the original repository did; it cuts multi-line CoT / RePE answers')
     p.add_argument("--limit", type=int, help="only the first N queries (dataset order: map 0 sg 0..9, map 1 ...)")
@@ -172,7 +178,7 @@ def wastar_options(weight):
 def llm_variant(args):
     """Run-name suffix for non-default LLM sampling, e.g. llmastar_cot-stopnl-max100 (the original setup)."""
     parts = ["stopnl"] if args.stop_newline else []
-    if args.max_tokens != 2048:
+    if args.max_tokens < 2048:  # a lower limit can cut answers; a higher one only leaves room (thinking models)
         parts.append(f"max{args.max_tokens}")
     return "-".join(parts) or None
 

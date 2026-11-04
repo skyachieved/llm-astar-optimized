@@ -28,7 +28,12 @@ MODELS = [
     ("GPT-4.1 mini", "gpt-4.1-mini", "other", "other_{kind}", None),
     ("GPT-4.1", "gpt-4.1", "other", "other_{kind}", None),
     ("Qwen2.5-VL-7B", "qwen2.5-vl-7b-instruct", "qwen", "qwen_{kind}", "qwen_pilot"),
+    ("Claude Opus 5.5*", "claude-opus-5-5", "claude", "claude_{kind}", None),
 ]
+NOTE_SAMPLING = ("*Claude Opus 5.5 always thinks before answering and its API rejects temperature, top_p and JSON mode,"
+                 " so it runs with the model's own sampling (`--model-sampling`, max_tokens 16,000 for thinking +"
+                 " answer); every other model runs at temperature 0. Its answers are not deterministic; the cache"
+                 " makes a rerun reproduce them.")
 METHODS = [("astar", "A*"), ("wastar-w2", "Weighted A* (w = 2)"), ("llmastar_standard", "LLM-A*"),
            ("quorumastar", "Quorum-A*")]
 ABLATIONS_1000 = [  # run, what differs from the default
@@ -207,6 +212,8 @@ def build(out=OUT):
         "",
         *bench,
         "",
+        NOTE_SAMPLING,
+        "",
         "Quorum-A* against each baseline, query by query:",
         "",
         *tests,
@@ -219,7 +226,8 @@ def build(out=OUT):
         "",
         *cost_table(out),
         "",
-        "Qwen2.5-VL-7B runs on our own GPUs, so its tokens are shown without a price.",
+        "Qwen2.5-VL-7B runs on our own GPUs, so its tokens are shown without a price. Claude's completion tokens"
+        " include its thinking.",
         "",
         "## 4. Ablations (gpt-4o-mini)",
         "",

@@ -243,7 +243,8 @@ bash experiments/gpt-4o-mini.sh all 2>&1 | tee experiments_gpt.log      # or mai
 Other models run the same comparison with the same defaults: `experiments/other-models.sh <model>` for other
 OpenAI chat models (gpt-4.1-mini, gpt-4.1; gpt-4.1-nano was retired by OpenAI on 2026-10-23), and
 `experiments/qwen.sh` for an open model (Qwen2.5-VL-7B-Instruct on a local vLLM server; its header has the server
-command). Then the report's tables and the model figure:
+command), and `experiments/claude.sh` for Claude Opus 5.5 (Anthropic's OpenAI-compatible
+endpoint; it thinks before answering and fixes its own sampling, so it runs with `--model-sampling`). Then the report's tables and the model figure:
 
 ```bash
 python -m llmastar.report               # outputs/report/tables.md

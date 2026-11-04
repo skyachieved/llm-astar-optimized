@@ -111,14 +111,22 @@ class ChatGPT:
     Sampling: no stop sequence by default, so multi-line CoT / RePE answers are returned whole; `stop=["\\n"]` with
     `max_tokens=100` is the original repository's setting. `stop` enters the cache key only when it is set, so
     caches written before it existed stay valid.
+    `model_sampling=True` sends no temperature, top_p, seed or response_format, only max_tokens (and stop): the
+    model samples with its own settings. For models that fix them, such as Claude Opus 5.5 through Anthropic's
+    OpenAI-compatible endpoint (always-on thinking; temperature, top_p and json_object are rejected).
     """
 
     def __init__(self, model="gpt-4o-mini", base_url=None, temperature=0.0, max_tokens=2048, top_p=1.0,
-                 seed=None, cache_dir=".cache/llm", timeout=60.0, max_retries=3, api_key=None, stop=None):
+                 seed=None, cache_dir=".cache/llm", timeout=60.0, max_retries=3, api_key=None, stop=None,
+                 model_sampling=False):
         self.model = model
         self._api_key = api_key
         self.base_url = (base_url or os.environ.get("OPENAI_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
-        self.sampling = {"temperature": temperature, "max_tokens": max_tokens, "top_p": top_p, "seed": seed}
+        self.model_sampling = model_sampling
+        if model_sampling:
+            self.sampling = {"max_tokens": max_tokens, "model_sampling": True}  # the flag only keys the cache
+        else:
+            self.sampling = {"temperature": temperature, "max_tokens": max_tokens, "top_p": top_p, "seed": seed}
         if stop is not None:
             self.sampling["stop"] = stop
         self.cache = DiskCache(cache_dir) if cache_dir else None
@@ -143,7 +151,7 @@ class ChatGPT:
 
     def _create(self, messages, sampling):
         """One request with the retry policy. Returns (completion, None, attempts, dropped) or (None, error, ...)."""
-        params = {k: v for k, v in sampling.items() if v is not None}
+        params = {k: v for k, v in sampling.items() if v is not None and k != "model_sampling"}
         attempts, retries, dropped = 0, 0, []
         while True:
             attempts += 1
@@ -170,7 +178,7 @@ class ChatGPT:
         treats as an abstention. `json_mode=True` asks for a JSON object (`response_format`); an endpoint that rejects
         it gets the request again without it, so callers must still parse leniently."""
         sampling = {**self.sampling, **overrides}
-        if json_mode:
+        if json_mode and not self.model_sampling:
             sampling["response_format"] = {"type": "json_object"}
         request = {"model": self.model, "base_url": self.base_url, "messages": redact_images(messages),
                    "sampling": sampling}
