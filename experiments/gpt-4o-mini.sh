@@ -7,6 +7,7 @@
 # Every LLM answer is cached in .cache/llm/ (keyed by model, URL, messages and sampling), so a rerun is free and only
 # repeats calls that failed. After each LLM run the raw log is checked for failed calls (rate limits, timeouts); if
 # any, the same command runs again (at most 3 times), so no result silently contains an abstention caused by an error.
+# Results (CSVs, summary.md, traces) go to outputs/gpt*/gpt-4o-mini/ and are committed; raw/ logs are not.
 # Defaults are never chosen from these runs: they were fixed on the pilot maps (agent.md Decisions, 2026-11-04).
 set -u
 cd "$(dirname "$0")/.."
@@ -47,7 +48,7 @@ report() {  # report <out dir>: summary table and the waypoint split vs weighted
 }
 
 main() {  # step 3: the four methods on all 1,000 benchmark queries
-  local out=outputs_gpt
+  local out=outputs/gpt
   python -m llmastar.run --method astar $API --out $out
   python -m llmastar.run --method wastar --weight 2 $API --out $out
   llm $out --method llmastar $API $FAST
@@ -57,7 +58,7 @@ main() {  # step 3: the four methods on all 1,000 benchmark queries
 }
 
 free() {  # ablations that reuse the main run's answers (search only) and the other weighted-A* weights
-  local out=outputs_gpt
+  local out=outputs/gpt
   python -m llmastar.run --method wastar --weight 1.5 $API --out $out
   python -m llmastar.run --method wastar --weight 3 $API --out $out
   llm $out --method quorumastar --no-vision $API $QUORUM
@@ -67,7 +68,7 @@ free() {  # ablations that reuse the main run's answers (search only) and the ot
 }
 
 ablations() {  # step 5: one change at a time, on the first 300 benchmark queries (maps 0-29)
-  local out=outputs_gpt_ablation300 lim="--limit 300"
+  local out=outputs/gpt_ablation300 lim="--limit 300"
   python -m llmastar.run --method astar $API $lim --out $out
   python -m llmastar.run --method wastar --weight 2 $API $lim --out $out
   llm $out --method llmastar $API $lim $FAST
@@ -89,14 +90,14 @@ ablations() {  # step 5: one change at a time, on the first 300 benchmark querie
 
 table1() {  # Table 1 rows on gpt-4o-mini, as we run them and in the original setup (stop "\n", max_tokens 100)
   for pass in 1 2; do  # the second pass is all cache hits except calls that failed in the first
-    python -m llmastar.table1 $API --out outputs_gpt $FAST
-    python -m llmastar.table1 $API --out outputs_gpt $FAST --stop-newline --max-tokens 100
+    python -m llmastar.table1 $API --out outputs/gpt $FAST
+    python -m llmastar.table1 $API --out outputs/gpt $FAST --stop-newline --max-tokens 100
   done
 }
 
 hard() {  # step 6: generalization to harder generated maps (dataset/generated/, never used for defaults)
   for kind in dense large zigzag; do
-    local out=outputs_gpt_$kind data="--dataset dataset/generated/$kind.json"
+    local out=outputs/gpt_$kind data="--dataset dataset/generated/$kind.json"
     python -m llmastar.run --method astar $API $data --out $out
     python -m llmastar.run --method wastar --weight 2 $API $data --out $out
     llm $out --method llmastar $API $data $FAST

@@ -1,7 +1,7 @@
 """The pilot (METHOD.md 11, agent.md step 4), on self-generated maps only; the evaluation maps never choose a default.
 
-  python -m llmastar.quorumastar.pilot make   [--size 50] [--seed 1] [--out pilot/pilot_maps.json]
-  python -m llmastar.quorumastar.pilot report --dir outputs_pilot/<model> [--run quorumastar] [--dataset ...]
+  python -m llmastar.quorumastar.pilot make   [--size 50] [--seed 1] [--out dataset/generated/pilot.json]
+  python -m llmastar.quorumastar.pilot report --dir outputs/pilot/<model> [--run quorumastar] [--dataset ...]
 
 `make` writes a dataset in the benchmark format: `size` maps from the few-shot generator (same parameters, fixed a
 priori) under a seed namespace disjoint from the few-shot pool's, one start/goal each, every map solvable and with a
@@ -306,11 +306,11 @@ def main(argv=None):
     m = sub.add_parser("make")
     m.add_argument("--size", type=int, default=50)
     m.add_argument("--seed", type=int, default=1)
-    m.add_argument("--out", default="pilot/pilot_maps.json")
+    m.add_argument("--out", default="dataset/generated/pilot.json")
     r = sub.add_parser("report")
-    r.add_argument("--dir", required=True, help="outputs root/<model>, e.g. outputs_pilot/gpt-4o-mini")
+    r.add_argument("--dir", required=True, help="outputs root/<model>, e.g. outputs/pilot/gpt-4o-mini")
     r.add_argument("--run", default="quorumastar")
-    r.add_argument("--dataset", default="pilot/pilot_maps.json")
+    r.add_argument("--dataset", default="dataset/generated/pilot.json")
     args = p.parse_args(argv)
     if args.cmd == "make":
         maps = make_maps(args.size, args.seed)

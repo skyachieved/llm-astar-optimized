@@ -92,7 +92,7 @@ def main(argv=None):
     p.add_argument("--llm-run", default="llmastar_standard")
     p.add_argument("--quorum-run", default="quorumastar")
     p.add_argument("--wastar-run", default="wastar-w2")
-    p.add_argument("--out", default=str(OUTPUTS_ROOT), help="outputs root holding <model>/ (e.g. outputs_gpt)")
+    p.add_argument("--out", default=str(OUTPUTS_ROOT), help="outputs root holding <model>/ (e.g. outputs/gpt)")
     args = p.parse_args(argv)
     map_id, sg_idx = args.query.split(":")
     names = {"astar": "astar", "wastar": args.wastar_run, "llmastar": args.llm_run, "quorumastar": args.quorum_run}

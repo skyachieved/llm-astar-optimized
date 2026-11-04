@@ -185,6 +185,10 @@ efficient search, at the cost of more LLM calls.
 - 2026-11-04: pilot done (see Results). Direction chosen by KC: keep Quorum-A* as the method (claim: it filters the
   waypoints that make LLM-A* worse than no LLM), fix the defaults from the pilot only, then run all 1,000 queries on
   gpt-4o-mini; step 6 (harder generated maps) is a generalization check, not a tuning set.
+- 2026-11-04 morning: `experiments/gpt-4o-mini.sh all` finished (02:53; 6 runs had failed calls that the rerun
+  fixed, none left). Steps 3 and 5 done on gpt-4o-mini, step 6 done for the maps (second model waits for free
+  GPUs). Results are committed under `outputs/gpt*/gpt-4o-mini/` (see Results). Next: failure cases, cost table,
+  submission check, then the report.
 
 ## Next steps
 - [x] 1. Read the repo and REPRODUCTION.md; write agent.md and METHOD.md. *(2026-11-03; layout = METHOD.md §10)*
@@ -211,6 +215,8 @@ efficient search, at the cost of more LLM calls.
       astar, wastar w = 1.5 / 2 / 3, llmastar standard / cot / repe; wastar ×3 also on llama-3-8b-instruct. All-off run:
       0 new LLM requests and metrics equal to `llmastar_standard.csv`.
       *(2026-11-03: all-off check passed on gpt-4o-mini, 10 queries; Qwen baselines wait for free GPUs.)*
+      *(2026-11-04: done on gpt-4o-mini, all 1,000: astar, wastar 1.5 / 2 / 3, llmastar standard / cot / repe,
+      quorumastar; `outputs/gpt/gpt-4o-mini/summary.md`.)*
 - [ ] 4. Pilot (50 maps, local model). Ground truth: a waypoint is "bad" if the shortest path through it (start→wp→goal,
       by A*) is > 5% longer than optimal (METHOD.md §11). (i) each candidate view's solo waypoint quality (text, corners,
       image, relations), on self-generated maps only, never the evaluation maps; (ii) how often each shares the same bad
@@ -219,7 +225,8 @@ efficient search, at the cost of more LLM calls.
       rates; (iv) Quorum-A* vs. LLM-A* vs. weighted A*. Write a go/no-go decision here and wait for the user.
       Tooling: `python -m llmastar.quorumastar.pilot make` / `report` (also: vote agreement and an offline simulation
       of radius-r vote matching, r = 0..3, for every 3-view set).
-- [ ] 5. Full runs (1,000) and ablations: each view alone vs. all; quorums; vision; snap; fallback; few-shot
+- [x] 5. *(2026-11-04, gpt-4o-mini: removal / fallback ablations on 1,000, the rest on the first 300;
+      `outputs/gpt/`, `outputs/gpt_ablation300/`)* Full runs (1,000) and ablations: each view alone vs. all; quorums; vision; snap; fallback; few-shot
       shared / per-view / none; CoT; roles.
 - [ ] 6. Harder generated maps (mazes, more walls, 2–3× size; fixed seed; held-out split never used for defaults) and a
       second model. *(2026-11-04: `python -m llmastar.generate_maps` (dense, large, zigzag; 100 each, seed 1, committed
@@ -371,11 +378,43 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   waypoints kept on 10/50 (ops 94.1 vs weighted A*); text,corners,relations 23.38 / 48.30 / 103.31, kept on 7/50
   (ops 75.2, storage 87.0 vs weighted A*); every query without waypoints equals weighted A* (100.0).
 
+- 2026-11-04 · Main comparison · gpt-4o-mini · all 1,000 queries · `outputs/gpt/gpt-4o-mini/summary.md`.
+  Ops / storage / length (A* = 100): llmastar standard 50.52 / 68.38 / 102.95, cot 48.53 / 67.07 / 102.73, repe
+  50.84 / 68.97 / 102.51; wastar w = 1.5 40.06 / 60.26 / 100.74, w = 2 34.32 / 56.23 / 102.02, w = 3 29.92 / 53.26 /
+  103.68; Quorum-A* 34.10 / 56.09 / 102.03; dwastar 59.49 / 78.65 / 100.25; all valid 100%. Quorum-A* does 32.5%
+  fewer operations than LLM-A* (standard) and matches weighted A* (w = 2). Split vs weighted A*: LLM-A* used
+  waypoints on 929 queries at 151.6 ops; Quorum-A* kept waypoints on 159 queries (no_targets 84.1%).
+  Removal / fallback ablations on the same 1,000 (cached answers): no judge 33.95 / 56.08 / 102.00, no removal
+  34.05 / 56.13 / 102.02, no stall fallback 34.50 / 56.42 / 102.04.
+- 2026-11-04 · Table 1 rows on gpt-4o-mini · `outputs/gpt/gpt-4o-mini/summary.md`. LLM-only valid: standard 6.3%,
+  cot 7.2%, repe 8.0% (paper, GPT-3.5: 12.6 / 12.0 / 16.4%), length 123.09 / 126.92 / 114.03. Original setup
+  (stop "\n", max_tokens 100): every llmastar query got no waypoint (no_targets 100%), so all three prompts equal
+  weighted A* w = 2 exactly (34.32 / 56.23 / 102.02), and LLM-only is 0.0% valid (0.6% lenient). Cause to confirm
+  from the raw responses (the answer is cut at its first newline, before "Generated Path:").
+- 2026-11-04 · Ablations · gpt-4o-mini · first 300 queries (maps 0-29) · `outputs/gpt_ablation300/gpt-4o-mini/`.
+  Ops / storage / length: wastar w = 2 33.19 / 55.41 / 101.88; llmastar 48.31 / 67.18 / 102.76; Quorum-A* default
+  32.97 / 55.36 / 101.88. One view, no vote (add-quorum 1): text 35.82, corners 37.34, relations 36.09 ops; all three
+  views without a vote (union, add-quorum 1) 35.59; unanimity (add-quorum 3) 32.69; image instead of relations
+  33.16; four views 33.57; no snap 33.30; few-shot shared 32.66, none 32.79; CoT 33.17; roles 33.18. Reading: our
+  views and checks alone take LLM-A*'s 48.3 to about 36, and the vote takes it to weighted A*'s level (33); the
+  single-view runs pay for stalls (stall fallback fired on 88 of the 92 queries left without waypoints, text view).
+  The defaults stay as fixed on the pilot (these are evaluation queries); variants within 0.5 points are noise.
+- 2026-11-04 · Harder generated maps (`dataset/generated/`, 100 each) · gpt-4o-mini · `outputs/gpt_{dense,large,
+  zigzag}/gpt-4o-mini/`. Ops / storage / length: dense: wastar 26.90 / 49.98 / 102.77, llmastar 53.84 / 72.50 /
+  103.48, Quorum-A* 26.48 / 49.74 / 102.75 (waypoints kept on 12, 87.2 ops vs wastar); large (101 x 61): wastar
+  20.10 / 33.77 / 103.38, llmastar 48.17 / 58.89 / 103.93 (253.4 ops vs wastar where it used waypoints), Quorum-A*
+  20.13 / 33.83 / 103.27 (kept on 1); zigzag: wastar 95.42 / 85.49 / 100.66, llmastar 94.94 / 87.98 / 100.35,
+  Quorum-A* 95.42 / 85.48 / 100.65 (kept on 5). LLM-A* gets worse with map difficulty; Quorum-A* never falls below
+  weighted A*, but keeps few waypoints on large and zigzag maps, so it gains little there (a limitation).
+
 ## Open questions
 - Q10. `--stall-k` default: 2 (METHOD.md) fired on the Fig. 1 query one pop early. Keep 2 and let the pilot decide, or
   change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-04 (yumin0-0) · Overnight `experiments/gpt-4o-mini.sh all` (01:08-02:53, gpt-4o-mini, no GPU): results in
+  Results; experiment outputs now live in `outputs/gpt*/` (CSVs, summaries, traces committed; raw logs ignored);
+  pilot dataset default `dataset/generated/pilot.json`.
 - 2026-11-04 (yumin0-0) · `experiments/gpt-4o-mini.sh` (every gpt-4o-mini run, with a rerun on failed calls);
   `llmastar/generate_maps.py` + `dataset/generated/{dense,large,zigzag,pilot}.json` (`tests/test_generate_maps.py`);
   on the first 15 maps weighted A* (w = 2) needs 33.6% / 16.4% / 100.0% of A*'s operations on dense / large / zigzag,

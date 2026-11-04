@@ -56,6 +56,22 @@ Left (Fig. 1): A\* and LLM-A\* on the paper's example query. Both of Llama's way
 drops them (hollow stars), and it still needs only 183 operations against A\*'s 859. Right (Fig. 3): on maps enlarged up to
 10×, A\*'s work grows 108× and LLM-A\*'s 73×. All figures are in [`outputs/figures/`](outputs/figures/).
 
+## Quorum-A\* results (GPT-4o mini)
+
+All 1,000 benchmark queries, relative to A\* (= 100). Weighted A\* (w = 2, no LLM) is shown because LLM-A\* falls
+back to it when it has no waypoint. Details, ablations and harder maps: [`outputs/gpt/gpt-4o-mini/summary.md`](outputs/gpt/gpt-4o-mini/summary.md),
+`outputs/gpt_ablation300/`, `outputs/gpt_{dense,large,zigzag}/`.
+
+| Method | Operations | Storage | Path length |
+|---|---|---|---|
+| LLM-A\*, few-shot prompt | 50.52 | 68.38 | 102.95 |
+| Weighted A\* (w = 2) | 34.32 | 56.23 | 102.02 |
+| **Quorum-A\*** | **34.10** | **56.09** | **102.03** |
+
+Quorum-A\* does a third fewer operations than LLM-A\* with the same model. Most of that comes from rejecting the
+waypoints that mislead the search (GPT-4o mini's LLM-A\* waypoints cost 1.5× weighted A\*'s operations where they
+are used), so overall it matches weighted A\* rather than beating it.
+
 ## Use it on your own maps
 
 Needs Python 3.11 and `pip install -r requirements.txt`, nothing else (no GPU, no torch). The default model is
