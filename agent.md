@@ -73,8 +73,8 @@ the damage when they are shared anyway.
 query (map + start/goal)
    ├─► V1 text     ─┐  one LLM call each, temperature 0, concurrent; a view ABSTAINS on error,
    ├─► V2 corners  ─┤  unsupported input (e.g. no image) or unparsable answer
-   ├─► V3 image    ─┘  (candidate V4 relations: walls in words; --views picks any subset;
-                       default text,corners,image until the pilot decides)
+   ├─► V3 relations ┘  (walls in words; candidate V4 image: a PNG; --views picks any subset;
+                       default text,corners,relations, chosen by the pilot 2026-11-04)
                     ▼
    canonicalize: snap to a free cell (±2), then to the nearest corner node (≤3)      --no-snap
                     ▼
@@ -178,6 +178,17 @@ efficient search, at the cost of more LLM calls.
   views, fewshot, `QuorumAStarGenerator`; `--method quorumastar`). Nothing has run against a real model yet: every
   test uses a mock. GPT-4o mini has never been called (no API key yet). Next: step 3 on dgx; Qwen2.5-VL-7B on dgx needs the same fp16 parity
   check before step 3; run Table 1 with `--stop-newline --max-tokens 100` for 2.0f.
+- 2026-11-03 night: first real-model runs, on GPT-4o mini (dgx GPUs 0-7 all taken by other users; GPT-4o mini is the
+  course's model, so it went first). Image reading 2/3, all off = LLM-A* confirmed (0 new requests, identical
+  metrics), Quorum-A* ran end to end on 5 queries (see Results). Pilot tooling added (`llmastar/quorumastar/pilot.py`);
+  next: the pilot on 50 self-generated maps with GPT-4o mini.
+- 2026-11-04: pilot done (see Results). Direction chosen by KC: keep Quorum-A* as the method (claim: it filters the
+  waypoints that make LLM-A* worse than no LLM), fix the defaults from the pilot only, then run all 1,000 queries on
+  gpt-4o-mini; step 6 (harder generated maps) is a generalization check, not a tuning set.
+- 2026-11-04 morning: `experiments/gpt-4o-mini.sh all` finished (02:53; 6 runs had failed calls that the rerun
+  fixed, none left). Steps 3 and 5 done on gpt-4o-mini, step 6 done for the maps (second model waits for free
+  GPUs). Results are committed under `outputs/gpt*/gpt-4o-mini/` (see Results). Next: failure cases, cost table,
+  submission check, then the report.
 
 ## Next steps
 - [x] 1. Read the repo and REPRODUCTION.md; write agent.md and METHOD.md. *(2026-11-03; layout = METHOD.md §10)*
@@ -203,16 +214,23 @@ efficient search, at the cost of more LLM calls.
 - [ ] 3. End to end: `python -m llmastar.run --method quorumastar ...`. Baselines on qwen2.5-vl-7b-instruct (all 1,000):
       astar, wastar w = 1.5 / 2 / 3, llmastar standard / cot / repe; wastar ×3 also on llama-3-8b-instruct. All-off run:
       0 new LLM requests and metrics equal to `llmastar_standard.csv`.
+      *(2026-11-03: all-off check passed on gpt-4o-mini, 10 queries; Qwen baselines wait for free GPUs.)*
+      *(2026-11-04: done on gpt-4o-mini, all 1,000: astar, wastar 1.5 / 2 / 3, llmastar standard / cot / repe,
+      quorumastar; `outputs/gpt/gpt-4o-mini/summary.md`.)*
 - [ ] 4. Pilot (50 maps, local model). Ground truth: a waypoint is "bad" if the shortest path through it (start→wp→goal,
       by A*) is > 5% longer than optimal (METHOD.md §11). (i) each candidate view's solo waypoint quality (text, corners,
       image, relations), on self-generated maps only, never the evaluation maps; (ii) how often each shares the same bad
       waypoint with the text and corner views; choose the third view (image or relations) by best combined quality and
       independence, and record the decision and its numbers under Decisions; (iii) vision check catch / false-alarm
       rates; (iv) Quorum-A* vs. LLM-A* vs. weighted A*. Write a go/no-go decision here and wait for the user.
-- [ ] 5. Full runs (1,000) and ablations: each view alone vs. all; quorums; vision; snap; fallback; few-shot
+      Tooling: `python -m llmastar.quorumastar.pilot make` / `report` (also: vote agreement and an offline simulation
+      of radius-r vote matching, r = 0..3, for every 3-view set).
+- [x] 5. *(2026-11-04, gpt-4o-mini: removal / fallback ablations on 1,000, the rest on the first 300;
+      `outputs/gpt/`, `outputs/gpt_ablation300/`)* Full runs (1,000) and ablations: each view alone vs. all; quorums; vision; snap; fallback; few-shot
       shared / per-view / none; CoT; roles.
 - [ ] 6. Harder generated maps (mazes, more walls, 2–3× size; fixed seed; held-out split never used for defaults) and a
-      second model.
+      second model. *(2026-11-04: `python -m llmastar.generate_maps` (dense, large, zigzag; 100 each, seed 1, committed
+      in `dataset/generated/`); runs in `experiments/gpt-4o-mini.sh hard`.)*
 - [ ] 7. Report support: export what the report needs from `outputs/` only: Table 1 vs. paper; Quorum-A* vs. A*, LLM-A*
       and weighted A* (ops vs. length trade-off with the weighted-A* frontier); ablation bars; failure cases and failed
       experiments, explained; cost table (calls, tokens, seconds per query); reproducibility appendix (models, decoding
@@ -257,6 +275,19 @@ efficient search, at the cost of more LLM calls.
 - 2026-11-03 · Pilot ground truth: a waypoint is bad if start→wp→goal by A* is > 5% longer than optimal. *Supersedes* the
   "> 3 cells from A* corners" rule · user review.
 - 2026-11-03 · No fixed schedule; track progress here. "Save progress" protocol added (Session protocol 6) · user.
+- 2026-11-03 · Pilot model: gpt-4o-mini instead of the local model (dgx GPUs taken; it is the course's model, about
+  $0.007 per query). The pilot run asks all four candidate views at once (5 calls per query, above the default 4,
+  measurement only); vote matching radius is measured offline from the same answers before any default changes · KC.
+- 2026-11-04 · Default views text,corners,relations with the vision judge (4 calls per query). Pilot only, 3 views +
+  judge (A* = 100): text,corners,relations 23.38 / 48.30 / 103.31; text,corners,image 24.05 / 49.04 / 103.10; the
+  difference is small (n = 50), so the tie goes to relations' higher solo quality (62.4% vs 57.8%) and lower cost (no
+  image view; the judge is then the only image call). The judge stays: it keeps few waypoints but they beat weighted
+  A* (75.2 ops on the 7 queries that kept one), and every other query runs exactly as weighted A*. Resolves Q11 · KC.
+- 2026-11-04 · All gpt-4o-mini experiments run from `experiments/gpt-4o-mini.sh` (main, free ablations, ablations,
+  Table 1 rows, hard maps). Ablations that need new LLM calls use the first 300 benchmark queries (maps 0-29), at
+  about $1.5 per run instead of about $5; the main comparison stays on all 1,000. Hard-map kinds and their parameters
+  (dense, large = 2x side, zigzag = serpentine walls) were fixed before any run on them and never choose a default.
+  A run whose raw log shows a failed call is rerun (cached answers reused) so no result hides an error · KC.
 - 2026-11-03 · Views: corners = visibility-graph incident adjacency list (Fatemi et al., arXiv 2310.04560, incident
   encoding best for most prompting methods; Li et al. 2026, arXiv 2604.10690, adjacency lists beat grids on mazes);
   candidate view `relations` (walls and passages in words, coordinate answers); image kept; default stays
@@ -317,11 +348,108 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   k = 2 fires at pop 80 (leg (24, 15) -> (5, 6): budget 56, 57 pops used), one pop before the target; k = 3 never
   fires. Result unchanged either way. Evidence that k = 2 is tight; the pilot (self-generated maps) decides k.
 
+- 2026-11-03 · First real-model runs · gpt-4o-mini (OpenAI API, KC's key) · `outputs_gpt/gpt-4o-mini/` (dgx, not
+  committed). (a) Image reading (`scripts/vl_smoke.py`, 3 pool maps, seed 99): S and G within 2 cells on 2/3 maps,
+  max error 3 on the third. (b) All off = LLM-A* on the first 10 queries: `llmastar_standard` 56.27 / 70.99 / 101.04,
+  all-off run 56.27 / 70.99 / 101.04 with 10/10 from cache (0 new requests). (c) Quorum-A* default (text, corners,
+  image; quorum 2; vision judge) on the first 5 queries: 0 abstentions, 0 errors, 100% valid, 16 calls, 243,726 tokens
+  (about 49k per query, about $0.007); ops / storage 38.62 / 58.74 vs LLM-A* 36.90 / 57.02 on the same 5 (n = 5, no
+  conclusion). Mechanism: on 4/5 queries no cell got 2 votes, so the search ran without waypoints; on 0:0 text and
+  corners chose the two corner cells of one wall end ((24, 9) and (26, 9)), which the exact-cell vote counts apart;
+  the image view answers long axis-aligned paths on multiples of 5. These are evaluation queries: they only show the
+  pipeline runs and suggest what the pilot should measure; no default is changed from them.
+
+- 2026-11-04 · Pilot (METHOD.md 11) · gpt-4o-mini · 50 self-generated maps (`pilot make`, seed 1) ·
+  `outputs_pilot/gpt-4o-mini/` (dgx, not committed), `pilot_quorumastar-vtext+corners+image+relations.md`.
+  Search (A* = 100; ops / storage / length): wastar-w2 24.34 / 49.25 / 103.18; llmastar_standard 35.92 / 61.07 /
+  102.89; Quorum-A* with all four views and the vision judge 23.98 / 49.09 / 102.80; without the judge 24.27 / 49.39 /
+  102.87; without any removal 24.39 / 49.66 / 102.96. Against weighted A* (= 100), split by whether the search kept
+  waypoints: LLM-A* kept them on 47/50 queries at ops 151.3 (its waypoints make search worse than no LLM); Quorum-A*
+  with judge kept them on 12/50 at ops 93.9 and ran as weighted A* on the other 38 (100.0); without judge 38/50 at
+  96.1, and the 12 others at 112.2 (6 stall fallbacks). Solo quality (good waypoints / queries with a good one):
+  text 53.2% / 78%, corners 54.7% / 80%, image 57.8% / 100% (521 waypoints, about 10 per answer), relations 62.4% / 86%.
+  Shared bad waypoints: relations repeats text's (31.4% of its bad ones), image almost never repeats anyone (2.3%).
+  Vote (quorum 2, exact cell): 45/50 queries keep a waypoint with 4 views, 66.2% good; text,corners,image 33/50,
+  74.5% good; text,corners,relations 41/50, 63.6%. Matching radius r = 1..3 adds coverage but no quality (r = 2:
+  61.0% with 4 views), so exact-cell voting stays. Vision judge: catch 88.9% (24/27 bad), false alarm 83.0% (44/53
+  good): it keeps few waypoints, but the ones it keeps beat weighted A*. 245 calls, 3.81 M tokens (76k per query).
+  Reading: Quorum-A* removes LLM-A*'s loss (36 -> 24 ops) and matches, not beats, the no-LLM weighted A* overall.
+- 2026-11-04 · Pilot, 3 views + judge (the 4-call budget) · same maps: text,corners,image 24.05 / 49.04 / 103.10,
+  waypoints kept on 10/50 (ops 94.1 vs weighted A*); text,corners,relations 23.38 / 48.30 / 103.31, kept on 7/50
+  (ops 75.2, storage 87.0 vs weighted A*); every query without waypoints equals weighted A* (100.0).
+
+- 2026-11-04 · Main comparison · gpt-4o-mini · all 1,000 queries · `outputs/gpt/gpt-4o-mini/summary.md`.
+  Ops / storage / length (A* = 100): llmastar standard 50.52 / 68.38 / 102.95, cot 48.53 / 67.07 / 102.73, repe
+  50.84 / 68.97 / 102.51; wastar w = 1.5 40.06 / 60.26 / 100.74, w = 2 34.32 / 56.23 / 102.02, w = 3 29.92 / 53.26 /
+  103.68; Quorum-A* 34.10 / 56.09 / 102.03; dwastar 59.49 / 78.65 / 100.25; all valid 100%. Quorum-A* does 32.5%
+  fewer operations than LLM-A* (standard) and matches weighted A* (w = 2). Split vs weighted A*: LLM-A* used
+  waypoints on 929 queries at 151.6 ops; Quorum-A* kept waypoints on 159 queries (no_targets 84.1%).
+  Removal / fallback ablations on the same 1,000 (cached answers): no judge 33.95 / 56.08 / 102.00, no removal
+  34.05 / 56.13 / 102.02, no stall fallback 34.50 / 56.42 / 102.04.
+- 2026-11-04 · Table 1 rows on gpt-4o-mini · `outputs/gpt/gpt-4o-mini/summary.md`. LLM-only valid: standard 6.3%,
+  cot 7.2%, repe 8.0% (paper, GPT-3.5: 12.6 / 12.0 / 16.4%), length 123.09 / 126.92 / 114.03. Original setup
+  (stop "\n", max_tokens 100): every llmastar query got no waypoint (no_targets 100%), so all three prompts equal
+  weighted A* w = 2 exactly (34.32 / 56.23 / 102.02), and LLM-only is 0.0% valid (0.6% lenient). Cause (raw
+  responses checked): gpt-4o-mini opens with a sentence ("To find a path from the start point [5, 5] to the goal point
+  [20, 20] while navigating ...") and a newline, so stop "\n" ends the answer before "Generated Path:"; the
+  original repository's completion-era stop setting does not fit a chat model.
+- 2026-11-04 · Ablations · gpt-4o-mini · first 300 queries (maps 0-29) · `outputs/gpt_ablation300/gpt-4o-mini/`.
+  Ops / storage / length: wastar w = 2 33.19 / 55.41 / 101.88; llmastar 48.31 / 67.18 / 102.76; Quorum-A* default
+  32.97 / 55.36 / 101.88. One view, no vote (add-quorum 1): text 35.82, corners 37.34, relations 36.09 ops; all three
+  views without a vote (union, add-quorum 1) 35.59; unanimity (add-quorum 3) 32.69; image instead of relations
+  33.16; four views 33.57; no snap 33.30; few-shot shared 32.66, none 32.79; CoT 33.17; roles 33.18. Reading: our
+  views and checks alone take LLM-A*'s 48.3 to about 36, and the vote takes it to weighted A*'s level (33); the
+  single-view runs pay for stalls (stall fallback fired on 88 of the 92 queries left without waypoints, text view).
+  The defaults stay as fixed on the pilot (these are evaluation queries); variants within 0.5 points are noise.
+- 2026-11-04 · Harder generated maps (`dataset/generated/`, 100 each) · gpt-4o-mini · `outputs/gpt_{dense,large,
+  zigzag}/gpt-4o-mini/`. Ops / storage / length: dense: wastar 26.90 / 49.98 / 102.77, llmastar 53.84 / 72.50 /
+  103.48, Quorum-A* 26.48 / 49.74 / 102.75 (waypoints kept on 12, 87.2 ops vs wastar); large (101 x 61): wastar
+  20.10 / 33.77 / 103.38, llmastar 48.17 / 58.89 / 103.93 (253.4 ops vs wastar where it used waypoints), Quorum-A*
+  20.13 / 33.83 / 103.27 (kept on 1); zigzag: wastar 95.42 / 85.49 / 100.66, llmastar 94.94 / 87.98 / 100.35,
+  Quorum-A* 95.42 / 85.48 / 100.65 (kept on 5). LLM-A* gets worse with map difficulty; Quorum-A* never falls below
+  weighted A*, but keeps few waypoints on large and zigzag maps, so it gains little there (a limitation).
+
+- 2026-11-04 · Failure cases and cost (from the CSVs, `python -m llmastar.analysis`) · gpt-4o-mini · all 1,000.
+  Against weighted A* (w = 2), Quorum-A* wins / ties / loses on 74 / 873 / 53 queries (LLM-A*: 203 / 139 / 658);
+  against LLM-A*, 669 / 125 / 206. What reached the search: no waypoint on 792 queries (= weighted A*, 100.0),
+  waypoints kept to the end on 156 (93.4 ops; 58 better, 67 equal, 31 worse), stall fallback on 52 (109.1; 16 / 14 /
+  22). Worst case 34:2: one kept waypoint, 298 ops vs 82 (weighted A*) and 31 (LLM-A*). Cost: Quorum-A* 32,185
+  prompt + 50 completion tokens per query ($4.86 per 1,000 queries at $0.15 / $0.60 per 1M); without the judge
+  5,895 + 46 ($0.91): the judge's image is 81% of the cost, and on these queries removing it changes ops by -0.15.
+
 ## Open questions
+- Q12 (2026-11-04). The vision judge costs about 5x the rest of Quorum-A* and its effect is within noise on the
+  benchmark. Defaults may only change on pilot evidence: `experiments/gpt-4o-mini.sh analyze` runs the default without
+  the judge on the pilot maps (cached views, no new calls); keep or drop the judge from that, and say which in the
+  report either way.
 - Q10. `--stall-k` default: 2 (METHOD.md) fired on the Fig. 1 query one pop early. Keep 2 and let the pilot decide, or
   change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-04 (yumin0-0) · `llmastar/analysis.py` (win / tie / loss, what reached the search, worst queries, cost per
+  query; `tests/test_analysis.py`), `fig6_methods --query` names case-study figures `_q<map>-<sg>`, and the `analyze`
+  step in `experiments/gpt-4o-mini.sh` (traces for cases 34:2, 10:0, 79:5; analysis.md per directory; Q12 on pilot).
+- 2026-11-04 (yumin0-0) · Overnight `experiments/gpt-4o-mini.sh all` (01:08-02:53, gpt-4o-mini, no GPU): results in
+  Results; experiment outputs now live in `outputs/gpt*/` (CSVs, summaries, traces committed; raw logs ignored);
+  pilot dataset default `dataset/generated/pilot.json`.
+- 2026-11-04 (yumin0-0) · `experiments/gpt-4o-mini.sh` (every gpt-4o-mini run, with a rerun on failed calls);
+  `llmastar/generate_maps.py` + `dataset/generated/{dense,large,zigzag,pilot}.json` (`tests/test_generate_maps.py`);
+  on the first 15 maps weighted A* (w = 2) needs 33.6% / 16.4% / 100.0% of A*'s operations on dense / large / zigzag,
+  so zigzag is the case where weighted A* gains nothing. Main 1,000-query run on gpt-4o-mini started 00:17.
+- 2026-11-04 (yumin0-0) · Default views text,corners,relations (Decisions); METHOD.md 4.1 and 5, README overview.
+- 2026-11-04 (yumin0-0) · Pilot on gpt-4o-mini (see Results); `pilot report` now also splits every LLM run against
+  weighted A* by whether the search kept waypoints (`split_table`, `tests/test_quorumastar_pilot.py`).
+- 2026-11-03 (yumin0-0) · Step 3 on gpt-4o-mini (see Results) and the pilot tooling: `llmastar/quorumastar/pilot.py`
+  (`make`: 50 maps from the few-shot generator under a disjoint seed namespace; `report`: solo quality, shared bad
+  waypoints, voting as run and simulated at radius 0..3, vision catch / false-alarm, search vs A*), with
+  `tests/test_quorumastar_pilot.py`.
+- 2026-11-03 (yumin0-0) · Submission interface: `QuorumAStar(llm="gpt").searching(query=..., filepath=...)` builds
+  QuorumAStarGenerator on GPT-4o mini, same result keys as LLMAStar plus `fallback` (the course requires the baseline
+  repository's input/output format on hidden maps); README example (`tests/test_quorumastar_api.py`).
+- 2026-11-03 (yumin0-0) · PR #2 merged (main b24bc15). Added `llmastar/figures/fig6_methods.py` (team request): A*,
+  LLM-A*, Quorum-A* searches on one query + averages vs A* with weighted A* (w=2), all on the same queries; a run that
+  does not exist is drawn as an empty panel, never estimated (`tests/test_fig6_methods.py`). Current
+  `outputs/figures/fig6_methods_llama-3-8b-instruct.png` has no Quorum-A* yet. Qwen2.5-VL-7B download started on dgx.
 - 2026-11-03 (KC = yumin0-0, branch `quorumastar`) · 2d part 2: config (flags, run-name variants), render (PNG, numbered
   waypoints), parsing (JSON, fenced, fallback list, ids), views (text / corners / image / relations / paper), fewshot
   (seeded pool of generated maps, gold = string-pulled A* corners; never an evaluation map), generator (concurrent

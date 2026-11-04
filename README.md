@@ -13,7 +13,7 @@ and had to be dropped. Some kept waypoints led the search the wrong way.
 **The idea.** Quorum-A\* picks waypoints in four stages:
 
 1. Several LLM instances propose waypoints independently. Each one sees the map in a different encoding, for
-   example coordinate text, a list of wall corners, or an image.
+   example coordinate text, a graph of wall corners, or the walls described in words.
 2. Only the waypoints the instances agree on are kept, and an instance can veto another's waypoints.
 3. A multimodal (vision) model checks the remaining path against an image of the map, and trims or rejects
    waypoints that don't hold up.
@@ -56,6 +56,22 @@ Left (Fig. 1): A\* and LLM-A\* on the paper's example query. Both of Llama's way
 drops them (hollow stars), and it still needs only 183 operations against A\*'s 859. Right (Fig. 3): on maps enlarged up to
 10×, A\*'s work grows 108× and LLM-A\*'s 73×. All figures are in [`outputs/figures/`](outputs/figures/).
 
+## Quorum-A\* results (GPT-4o mini)
+
+All 1,000 benchmark queries, relative to A\* (= 100). Weighted A\* (w = 2, no LLM) is shown because LLM-A\* falls
+back to it when it has no waypoint. Details, ablations and harder maps: [`outputs/gpt/gpt-4o-mini/summary.md`](outputs/gpt/gpt-4o-mini/summary.md),
+`outputs/gpt_ablation300/`, `outputs/gpt_{dense,large,zigzag}/`.
+
+| Method | Operations | Storage | Path length |
+|---|---|---|---|
+| LLM-A\*, few-shot prompt | 50.52 | 68.38 | 102.95 |
+| Weighted A\* (w = 2) | 34.32 | 56.23 | 102.02 |
+| **Quorum-A\*** | **34.10** | **56.09** | **102.03** |
+
+Quorum-A\* does a third fewer operations than LLM-A\* with the same model. Most of that comes from rejecting the
+waypoints that mislead the search (GPT-4o mini's LLM-A\* waypoints cost 1.5× weighted A\*'s operations where they
+are used), so overall it matches weighted A\* rather than beating it.
+
 ## Use it on your own maps
 
 Needs Python 3.11 and `pip install -r requirements.txt`, nothing else (no GPU, no torch). The default model is
@@ -77,6 +93,13 @@ result = LLMAStar(llm="gpt", prompt="standard").searching(query=query, filepath=
 print(result["operation"], result["storage"], result["length"], result["valid"])
 ```
 
+Quorum-A\* has the same interface (it makes up to 4 LLM calls per query: 3 views and a vision check):
+
+```python
+from llmastar.pather import QuorumAStar
+result = QuorumAStar(llm="gpt").searching(query=query, filepath="search.png")   # same result keys + "fallback"
+```
+
 `llm="gpt"` is GPT-4o mini with the paper's GPT prompts (`prompt` is `standard`, `cot` or `repe`). The result has
 `operation` (states expanded), `storage` (states stored), `length` (path length), `valid`, `path`, `visited` and
 `llm_output` (the start, the waypoints kept and the goal). `filepath` is optional and saves a plot.
@@ -90,6 +113,8 @@ export OPENAI_API_KEY=sk-...
 python -m llmastar.run --method astar    --dataset my_maps.json --model gpt-4o-mini
 python -m llmastar.run --method llmastar --dataset my_maps.json --model gpt-4o-mini \
   --base-url https://api.openai.com/v1 --prompt-set gpt --prompt standard
+python -m llmastar.run --method quorumastar --dataset my_maps.json --model gpt-4o-mini \
+  --base-url https://api.openai.com/v1
 ```
 
 Each run writes `outputs/<model>/<run>.csv` with one row per query: `map_id, sg_idx, start, goal, method, prompt,
@@ -192,6 +217,17 @@ python -m llmastar.figures
   reuse the answers from the `llmastar` runs.
 - To try a quick pilot first, add `--limit 50` to the LLM runs (the first 50 queries).
 - These commands overwrite the results committed in `outputs/`; `git checkout outputs` brings them back.
+
+**3. Quorum-A\* on GPT-4o mini** (the course's model; no GPU needed). One script runs every experiment of the
+report: the four methods on all 1,000 queries, the ablations (first 300 queries), the Table 1 rows on GPT-4o mini,
+and the generalization check on harder generated maps (`dataset/generated/`, made by `python -m
+llmastar.generate_maps`). It reruns any command whose raw log shows a failed call (rate limit, timeout); cached
+answers are reused, so a rerun costs nothing.
+
+```bash
+read -rsp "OpenAI key: " OPENAI_API_KEY; echo; export OPENAI_API_KEY   # never written to disk
+bash experiments/gpt-4o-mini.sh all 2>&1 | tee experiments_gpt.log      # or main | free | ablations | table1 | hard
+```
 
 ## What's where
 

@@ -84,7 +84,7 @@ does not matter):
 
 ## 4. Components
 
-**4.1 Views** (`--views`, default `text,corners,image`). Each view makes one LLM call per query. The views are
+**4.1 Views** (`--views`, default `text,corners,relations`; the third view was chosen by the pilot, §11). Each view makes one LLM call per query. The views are
 called concurrently, at temperature 0 and `--max-tokens` 2048. Answers are JSON: `{"waypoints": [...]}`, requested
 with JSON mode (`response_format={"type": "json_object"}`, `--json-mode`, default on). If the endpoint rejects JSON
 mode, the request is resent without it. Parsing tries `json.loads` first (code fences stripped) and falls back to
@@ -99,15 +99,15 @@ the last bracketed list in the text (`parse_waypoints` rule).
   segment. The prompt has one line per node: its ID, its coordinates and the neighbors it can see, each with its
   Euclidean distance, e.g. `Node 3 (12, 8): sees 0 (9.2), 7 (14.1), G (31.5)`. It contains no barrier list. Answer:
   node IDs `[3, 7, ...]`, mapped back to cells.
-- **relations** (candidate, not in the default set): the walls in words, with where each can be passed, e.g. "A wall
+- **relations** (default third view since the pilot, §11): the walls in words, with where each can be passed, e.g. "A wall
   at y = 10 blocks x = 0..25; you can pass it at x = 26 or beyond." One sentence per barrier, built from the barrier
-  list and its free ends. Answer: `[[x, y], ...]`. The pilot (§11) decides between this view and the image view.
-- **image**: a PNG of the map (matplotlib Agg, 20 px per cell, x and y axes labeled every 5 cells, grid every
+  list and its free ends. Answer: `[[x, y], ...]`.
+- **image** (candidate, not in the default set since the pilot): a PNG of the map (matplotlib Agg, 20 px per cell, x and y axes labeled every 5 cells, grid every
   cell, y pointing up, barriers drawn as thick black segments, S and G marked). Answer: `[[x, y], ...]`. Zero-shot. The
   text part gives only the grid size and the start and goal coordinates (needed to answer in coordinates), never the
   barrier list.
   If the model has no image input, the request fails and the view abstains (logged).
-- At most 4 LLM calls per query by default: 3 views + the vision judge (§4.5). Adding `relations` to `--views` adds a call.
+- At most 4 LLM calls per query by default: 3 views + the vision judge (§4.5). Adding `image` to `--views` adds a call.
 - A view **abstains** if its call errors or its answer has no parsable list. An abstaining view casts no vote.
 - `--cot` (off): each view first gives brief reasoning in a `"reasoning"` field of the same JSON object (so JSON
   mode still applies), then `"waypoints"`. `--roles` (off): each view gets its own
@@ -161,7 +161,7 @@ A* with w = 2. The fallback fires at most once per query, and it is logged with 
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--views` | `text,corners,image` | voters, one call each; any subset of `text,corners,image,relations` |
+| `--views` | `text,corners,relations` | voters, one call each; any subset of `text,corners,image,relations` |
 | `--fewshot` | `per-view` | `per-view` / `shared` / `none` / `paper` |
 | `--n-shots`, `--fewshot-seed` | 3, 0 | examples per view; pool seed |
 | `--cot`, `--roles` | off | CoT answers; per-view system roles |

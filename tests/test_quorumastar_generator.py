@@ -20,6 +20,7 @@ from tests.test_client import FakeAPI
 FIXED = {(1, 0), (1, 3), (7, 2), (23, 8), (42, 5), (77, 1)}
 EXAMPLE = {"start": [5, 10], "goal": [45, 12], "range_x": [0, 51], "range_y": [0, 31],
            "horizontal_barriers": [[16, 15, 40]], "vertical_barriers": []}
+IMAGE_VIEWS = QuorumConfig(views=("text", "corners", "image"))  # tests of the image view (not a default since the pilot)
 
 
 @pytest.fixture(scope="module")
@@ -31,6 +32,7 @@ def queries():
 
 def test_config_defaults_and_variants():
     assert QuorumConfig().variant() is None
+    assert QuorumConfig().views == ("text", "corners", "relations")  # agent.md Decisions 2026-11-04 (pilot)
     assert QuorumConfig(vision=False).variant() == "novision"
     assert QuorumConfig.all_off().variant() == "vtext-fspaper-nosnap-add1-novision-k0"
     with pytest.raises(ValueError):
@@ -157,7 +159,7 @@ def test_generator_votes_judges_and_prunes():
     assert corner in corner_nodes(EXAMPLE) and passes_filter(other, EXAMPLE)
     model = ScriptedModel(text=json.dumps({"waypoints": [corner, other]}), corners=_ids([corner], EXAMPLE),
                           image=json.dumps({"waypoints": [[13.6, 15.2], other]}), judge='{"remove": []}')
-    result = QuorumAStarGenerator(model).generate(EXAMPLE)
+    result = QuorumAStarGenerator(model, IMAGE_VIEWS).generate(EXAMPLE)
     raw = result.raw
     assert sorted(model.calls) == ["corners", "image", "judge", "text"]
     assert [v["cell"] for v in raw["votes"]] == [list(corner), list(other)]  # (13.6, 15.2) snapped to the corner
@@ -167,11 +169,21 @@ def test_generator_votes_judges_and_prunes():
     assert raw["calls"] == 4 and raw["prompt_tokens"] == 40 and raw["llm_error"] == ""
 
 
+def test_default_views_are_text_corners_relations_plus_judge():
+    corner = (14, 15)
+    model = ScriptedModel(text=json.dumps({"waypoints": [corner]}), corners=_ids([corner], EXAMPLE),
+                          judge='{"remove": []}')  # the scripted model answers relations like text (no image part)
+    result = QuorumAStarGenerator(model).generate(EXAMPLE)
+    assert [v["view"] for v in result.raw["views"]] == ["text", "corners", "relations"]
+    assert sorted(model.calls) == ["corners", "judge", "text", "text"]  # 4 calls: 3 views + judge
+    assert result.waypoints == [corner] and result.raw["votes"][0]["support"] == 3
+
+
 def test_an_abstaining_view_and_judge():
     corner = (14, 15)
     model = ScriptedModel(text=json.dumps({"waypoints": [corner]}), corners=_ids([corner], EXAMPLE),
                           image=RuntimeError("model has no image input"), judge=RuntimeError("no image input"))
-    result = QuorumAStarGenerator(model).generate(EXAMPLE)
+    result = QuorumAStarGenerator(model, IMAGE_VIEWS).generate(EXAMPLE)
     assert result.waypoints == [corner]
     assert [v["abstained"] for v in result.raw["views"]] == [False, False, True]
     assert result.raw["judge"]["abstained"] and result.raw["llm_error"] == ""  # some views answered
