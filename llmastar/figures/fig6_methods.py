@@ -155,7 +155,8 @@ def main(argv=None):
     strip = fig.add_subplot(grid[1, :])
     strip.axis("off")
     strip.legend(handles=handles, labels=labels, loc="center", ncol=len(handles), frameon=False, fontsize=8.5)
-    save(fig, f"fig6_methods_{model_slug(args.model)}")
+    suffix = "" if args.query == "1:0" else f"_q{map_id}-{sg_idx}"  # a case study keeps the main figure
+    save(fig, f"fig6_methods_{model_slug(args.model)}{suffix}")
     plt.close(fig)
 
 

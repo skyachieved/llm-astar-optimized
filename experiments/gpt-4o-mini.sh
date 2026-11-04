@@ -2,7 +2,7 @@
 # Every gpt-4o-mini experiment of the report, in one place (agent.md steps 3, 5, 6 and the Table 1 rows).
 #
 #   read -rsp "OpenAI key: " OPENAI_API_KEY; echo; export OPENAI_API_KEY
-#   bash experiments/gpt-4o-mini.sh all 2>&1 | tee experiments_gpt.log      # or: main | free | ablations | table1 | hard
+#   bash experiments/gpt-4o-mini.sh all 2>&1 | tee experiments_gpt.log      # or: main | free | ablations | table1 | hard | analyze
 #
 # Every LLM answer is cached in .cache/llm/ (keyed by model, URL, messages and sampling), so a rerun is free and only
 # repeats calls that failed. After each LLM run the raw log is checked for failed calls (rate limits, timeouts); if
@@ -106,9 +106,28 @@ hard() {  # step 6: generalization to harder generated maps (dataset/generated/,
   done
 }
 
+analyze() {  # step 7: traces for the case studies, then analysis.md (win/tie/loss, failure cases, cost) per directory
+  # The case queries are the worst Quorum-A* queries against weighted A* in outputs/gpt/gpt-4o-mini/analysis.md.
+  # Rerunning with --trace rewrites the same CSVs (cached answers, deterministic search) and adds the traces.
+  local out=outputs/gpt
+  local trace=(--trace "1:*" 34:2 10:0 79:5)
+  python -m llmastar.run --method astar $API --out $out "${trace[@]}"
+  python -m llmastar.run --method wastar --weight 2 $API --out $out "${trace[@]}"
+  llm $out --method llmastar $API $FAST "${trace[@]}"
+  llm $out --method quorumastar $API $QUORUM "${trace[@]}"
+  for d in outputs/gpt outputs/gpt_ablation300 outputs/gpt_dense outputs/gpt_large outputs/gpt_zigzag; do
+    python -m llmastar.analysis --dir $d/gpt-4o-mini
+  done
+  python -m llmastar.figures.fig6_methods --model gpt-4o-mini --out $out --query 34:2
+  # Q12: the judge's cost/benefit measured where defaults are decided (pilot maps; cached views, no judge calls)
+  llm outputs/pilot --method quorumastar --no-vision --dataset dataset/generated/pilot.json $API $QUORUM
+  python -m llmastar.run --method quorumastar --dataset dataset/generated/pilot.json $API --out outputs/pilot $QUORUM
+  python -m llmastar.analysis --dir outputs/pilot/gpt-4o-mini
+}
+
 case "${1:-all}" in
-  main) main ;; free) free ;; ablations) ablations ;; table1) table1 ;; hard) hard ;;
-  all) main; free; ablations; table1; hard ;;
-  *) echo "usage: bash experiments/gpt-4o-mini.sh [main|free|ablations|table1|hard|all]"; exit 2 ;;
+  main) main ;; free) free ;; ablations) ablations ;; table1) table1 ;; hard) hard ;; analyze) analyze ;;
+  all) main; free; ablations; table1; hard; analyze ;;
+  *) echo "usage: bash experiments/gpt-4o-mini.sh [main|free|ablations|table1|hard|analyze|all]"; exit 2 ;;
 esac
 echo "done: $(date)"

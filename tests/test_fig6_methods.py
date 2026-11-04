@@ -55,3 +55,9 @@ def test_out_reads_another_outputs_root(outputs):
     shutil.rmtree(outputs)  # only <out>/fake-model holds the runs now
     fig6_methods.main(["--model", "fake-model", "--out", str(other)])
     assert (outputs.parent / "figures" / "fig6_methods_fake-model.png").exists()  # figures still go to outputs/
+
+
+def test_a_case_study_query_gets_its_own_file(outputs):
+    fig6_methods.main(["--model", "fake-model", "--query", "1:3"])
+    assert (outputs.parent / "figures" / "fig6_methods_fake-model_q1-3.png").exists()
+    assert not (outputs.parent / "figures" / "fig6_methods_fake-model.png").exists()

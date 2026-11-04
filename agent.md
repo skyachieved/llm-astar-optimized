@@ -389,8 +389,10 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
 - 2026-11-04 · Table 1 rows on gpt-4o-mini · `outputs/gpt/gpt-4o-mini/summary.md`. LLM-only valid: standard 6.3%,
   cot 7.2%, repe 8.0% (paper, GPT-3.5: 12.6 / 12.0 / 16.4%), length 123.09 / 126.92 / 114.03. Original setup
   (stop "\n", max_tokens 100): every llmastar query got no waypoint (no_targets 100%), so all three prompts equal
-  weighted A* w = 2 exactly (34.32 / 56.23 / 102.02), and LLM-only is 0.0% valid (0.6% lenient). Cause to confirm
-  from the raw responses (the answer is cut at its first newline, before "Generated Path:").
+  weighted A* w = 2 exactly (34.32 / 56.23 / 102.02), and LLM-only is 0.0% valid (0.6% lenient). Cause (raw
+  responses checked): gpt-4o-mini opens with a sentence ("To find a path from the start point [5, 5] to the goal point
+  [20, 20] while navigating ...") and a newline, so stop "\n" ends the answer before "Generated Path:"; the
+  original repository's completion-era stop setting does not fit a chat model.
 - 2026-11-04 · Ablations · gpt-4o-mini · first 300 queries (maps 0-29) · `outputs/gpt_ablation300/gpt-4o-mini/`.
   Ops / storage / length: wastar w = 2 33.19 / 55.41 / 101.88; llmastar 48.31 / 67.18 / 102.76; Quorum-A* default
   32.97 / 55.36 / 101.88. One view, no vote (add-quorum 1): text 35.82, corners 37.34, relations 36.09 ops; all three
@@ -407,11 +409,26 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   Quorum-A* 95.42 / 85.48 / 100.65 (kept on 5). LLM-A* gets worse with map difficulty; Quorum-A* never falls below
   weighted A*, but keeps few waypoints on large and zigzag maps, so it gains little there (a limitation).
 
+- 2026-11-04 · Failure cases and cost (from the CSVs, `python -m llmastar.analysis`) · gpt-4o-mini · all 1,000.
+  Against weighted A* (w = 2), Quorum-A* wins / ties / loses on 74 / 873 / 53 queries (LLM-A*: 203 / 139 / 658);
+  against LLM-A*, 669 / 125 / 206. What reached the search: no waypoint on 792 queries (= weighted A*, 100.0),
+  waypoints kept to the end on 156 (93.4 ops; 58 better, 67 equal, 31 worse), stall fallback on 52 (109.1; 16 / 14 /
+  22). Worst case 34:2: one kept waypoint, 298 ops vs 82 (weighted A*) and 31 (LLM-A*). Cost: Quorum-A* 32,185
+  prompt + 50 completion tokens per query ($4.86 per 1,000 queries at $0.15 / $0.60 per 1M); without the judge
+  5,895 + 46 ($0.91): the judge's image is 81% of the cost, and on these queries removing it changes ops by -0.15.
+
 ## Open questions
+- Q12 (2026-11-04). The vision judge costs about 5x the rest of Quorum-A* and its effect is within noise on the
+  benchmark. Defaults may only change on pilot evidence: `experiments/gpt-4o-mini.sh analyze` runs the default without
+  the judge on the pilot maps (cached views, no new calls); keep or drop the judge from that, and say which in the
+  report either way.
 - Q10. `--stall-k` default: 2 (METHOD.md) fired on the Fig. 1 query one pop early. Keep 2 and let the pilot decide, or
   change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-04 (yumin0-0) · `llmastar/analysis.py` (win / tie / loss, what reached the search, worst queries, cost per
+  query; `tests/test_analysis.py`), `fig6_methods --query` names case-study figures `_q<map>-<sg>`, and the `analyze`
+  step in `experiments/gpt-4o-mini.sh` (traces for cases 34:2, 10:0, 79:5; analysis.md per directory; Q12 on pilot).
 - 2026-11-04 (yumin0-0) · Overnight `experiments/gpt-4o-mini.sh all` (01:08-02:53, gpt-4o-mini, no GPU): results in
   Results; experiment outputs now live in `outputs/gpt*/` (CSVs, summaries, traces committed; raw logs ignored);
   pilot dataset default `dataset/generated/pilot.json`.
