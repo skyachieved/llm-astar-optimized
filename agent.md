@@ -428,6 +428,11 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-04 (yumin0-0) · Submission dry run: `git archive` zip (15 MB) of a clean checkout, fresh Python 3.11 venv with
+  only `requirements.txt`: 133 tests pass; `AStar` / `LLMAStar(llm="gpt")` / `QuorumAStar(llm="gpt")` run on an unseen
+  map file with the baseline's result keys (+ `fallback`), and without a key the LLM methods fall back instead of
+  crashing; `python -m llmastar.run --dataset <file>` takes it unchanged. Secret scan: only the fake `sk-secret` in
+  `tests/test_client.py`. To decide at packaging: keep or drop agent.md / CLAUDE.md (internal notes).
 - 2026-11-04 (yumin0-0) · Vision judge off by default (Decisions); `experiments/gpt-4o-mini.sh` runs the judge as an
   ablation (`--vision`), the all-off check on all 1,000 queries, and picks the case-study queries from the CSVs
   (`analysis --print-worst`); `llmastar/figures/fig7_tradeoff.py` (ops / storage vs length with the weighted-A*
