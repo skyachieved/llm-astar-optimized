@@ -230,6 +230,9 @@ read -rsp "OpenAI key: " OPENAI_API_KEY; echo; export OPENAI_API_KEY   # never w
 bash experiments/gpt-4o-mini.sh all 2>&1 | tee experiments_gpt.log      # or main | free | ablations | table1 | hard
 ```
 
+A second, open model (Qwen2.5-VL-7B-Instruct on a local vLLM server) runs the same comparison with
+`experiments/qwen.sh`; its header has the server command.
+
 ## What's where
 
 ```

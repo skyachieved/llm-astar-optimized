@@ -428,6 +428,9 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-04 (yumin0-0) · `experiments/qwen.sh` (second model, Qwen2.5-VL-7B-Instruct on dgx: `check` on 10 queries for
+  the fp16 V100 server, then main 1,000 + hard maps). Quorum-A* is text-only since the judge is off, so no image input
+  is needed on V100. Waits for free GPUs.
 - 2026-11-04 (yumin0-0) · Submission dry run: `git archive` zip (15 MB) of a clean checkout, fresh Python 3.11 venv with
   only `requirements.txt`: 133 tests pass; `AStar` / `LLMAStar(llm="gpt")` / `QuorumAStar(llm="gpt")` run on an unseen
   map file with the baseline's result keys (+ `fallback`), and without a key the LLM methods fall back instead of
