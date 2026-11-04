@@ -57,21 +57,31 @@ Left (Fig. 1): A\* and LLM-A\* on the paper's example query. Both of Llama's way
 drops them (hollow stars), and it still needs only 183 operations against A\*'s 859. Right (Fig. 3): on maps enlarged up to
 10×, A\*'s work grows 108× and LLM-A\*'s 73×. All figures are in [`outputs/figures/`](outputs/figures/).
 
-## Quorum-A\* results (GPT-4o mini)
+## Quorum-A\* results
 
-All 1,000 benchmark queries, relative to A\* (= 100). Weighted A\* (w = 2, no LLM) is shown because LLM-A\* falls
-back to it when it has no waypoint. Details, ablations and harder maps: [`outputs/gpt/gpt-4o-mini/summary.md`](outputs/gpt/gpt-4o-mini/summary.md),
-`outputs/gpt_ablation300/`, `outputs/gpt_{dense,large,zigzag}/`.
+All 1,000 benchmark queries, relative to A\* (= 100); GPT-4o mini is the course's model. Weighted A\* (w = 2, no
+LLM) is shown because LLM-A\* falls back to it when it has no waypoint.
 
-| Method | Operations | Storage | Path length |
+| Method (GPT-4o mini) | Operations | Storage | Path length |
 |---|---|---|---|
 | LLM-A\*, few-shot prompt | 50.52 | 68.38 | 102.95 |
 | Weighted A\* (w = 2) | 34.32 | 56.23 | 102.02 |
 | **Quorum-A\*** | **33.95** | **56.08** | **102.00** |
 
 Quorum-A\* does a third fewer operations than LLM-A\* with the same model. Most of that comes from rejecting the
-waypoints that mislead the search (GPT-4o mini's LLM-A\* waypoints cost 1.5× weighted A\*'s operations where they
-are used), so overall it matches weighted A\* rather than beating it.
+waypoints that mislead the search, so on GPT-4o mini it matches weighted A\* rather than beating it. With stronger
+models the same defaults pull ahead of weighted A\* (operations; win / tie / loss against weighted A\* per query,
+paired Wilcoxon p):
+
+| Model | LLM-A\* | Quorum-A\* | Quorum-A\* vs weighted A\* (34.32) |
+|---|---|---|---|
+| GPT-4o mini | 50.52 | 33.95 | 249 / 508 / 243, p = 0.6 |
+| GPT-4.1 mini | 42.21 | 33.39 | 274 / 499 / 227, p = 0.012 |
+| GPT-4.1 | 39.90 | 33.53 | 312 / 456 / 232, p < 0.001 |
+
+Every table of the report (harder maps, cost, ablations, pilot) is in
+[`outputs/report/tables.md`](outputs/report/tables.md), written by `python -m llmastar.report` from the per-query
+CSVs; [`outputs/figures/fig8_models.png`](outputs/figures/fig8_models.png) draws the model comparison.
 
 ## Use it on your own maps
 
@@ -230,16 +240,26 @@ read -rsp "OpenAI key: " OPENAI_API_KEY; echo; export OPENAI_API_KEY   # never w
 bash experiments/gpt-4o-mini.sh all 2>&1 | tee experiments_gpt.log      # or main | free | ablations | table1 | hard
 ```
 
-A second, open model (Qwen2.5-VL-7B-Instruct on a local vLLM server) runs the same comparison with
-`experiments/qwen.sh`; its header has the server command.
+Other models run the same comparison with the same defaults: `experiments/other-models.sh <model>` for other
+OpenAI chat models (gpt-4.1-mini, gpt-4.1; gpt-4.1-nano was retired by OpenAI on 2026-10-23), and
+`experiments/qwen.sh` for an open model (Qwen2.5-VL-7B-Instruct on a local vLLM server; its header has the server
+command). Then the report's tables and the model figure:
+
+```bash
+python -m llmastar.report               # outputs/report/tables.md
+python -m llmastar.figures.fig8_models  # outputs/figures/fig8_models.png
+```
 
 ## What's where
 
 ```
 llmastar/run.py        one method over the benchmark -> outputs/<model>/<run>.csv
 llmastar/summary.py    the results table, next to the paper's numbers
+llmastar/report.py     the report's tables across models (paired tests in llmastar/stats.py)
+llmastar/quorumastar/  Quorum-A*'s waypoint step (views, vote, checks)
+experiments/           one script per model: every run of the report
 llmastar/scale.py      the Fig. 3 scalability run
-llmastar/figures/      Figs. 1-3, built from outputs/ only
+llmastar/figures/      Figs. 1-8, built from outputs/ only
 llmastar/pather/       A*, Dynamic WA*, LLM-A* (search only, no LLM code)
 llmastar/waypoints/    waypoint generators: the paper's prompts; new methods register here
 llmastar/model/        OpenAI-compatible chat client with an on-disk response cache

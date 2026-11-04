@@ -229,9 +229,12 @@ operation, storage and length match `LLMAStar` on a fixed set of maps, and `test
   weight, so no new search code is needed. It runs as `--method wastar --weight W`, with run names `wastar-w1.5`,
   `wastar-w2` and `wastar-w3`.
 - **LLM-A\*** (`--method llmastar --prompt standard|cot|repe`), rerun on the Quorum-A* model.
-- **Model:** Qwen2.5-VL-7B-Instruct [9] (bf16, vLLM 0.11.0) for all views, the vision judge and the LLM-A* baseline.
-  Llama-3-8B-Instruct stays for the Table 1 reproduction only. GPT-4o mini (`--model gpt-4o-mini --base-url
-  https://api.openai.com/v1`) comes later as the final model.
+- **Model:** GPT-4o mini (`--model gpt-4o-mini --base-url https://api.openai.com/v1`), the course's evaluation model,
+  for all views, the vision judge and the LLM-A* baseline; the defaults were fixed on its pilot. Generalization, with
+  the same defaults: GPT-4.1 mini and GPT-4.1 (`experiments/other-models.sh`) and Qwen2.5-VL-7B-Instruct [9] (fp16,
+  vLLM 0.11.0 on 2× V100; `experiments/qwen.sh`). Llama-3-8B-Instruct stays for the Table 1 reproduction only.
+  *(Changed 2026-11-04: Qwen was planned as the main model, but no GPU was free when the runs started; GPT-4o mini
+  went first as the course's model.)*
 
 ## 10. Implementation map (proposed)
 
