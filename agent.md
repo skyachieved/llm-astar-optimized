@@ -253,6 +253,14 @@ efficient search, at the cost of more LLM calls.
       work from artifacts.
 
 ## Decisions (date · decision · reason; superseded ones are marked, never deleted)
+- 2026-11-04 · Qwen2.5-VL-7B runs with max_tokens 512 (run names `-max512`), a 1-hour request timeout and 10 Quorum
+  workers (30 requests, under `--max-num-seqs 32`). Evidence (dgx, vLLM metrics): Qwen now and then repeats itself up to
+  the token limit, and the fp16 V100 server writes such an answer at about 1.4 tokens/s, so 2,048 tokens took about 24
+  minutes. With the 60 s timeout these calls failed every time, retries piled up and 122 of the first 200 Quorum-A*
+  queries failed; with a 15-minute timeout the same 3 LLM-A* calls still failed; with 2,048 tokens and 1 hour the run
+  would have taken more than a day (43 new queries in 41 minutes). Normal answers are far shorter (LLM-A* about 24
+  tokens, a view under 100), so the cap only cuts the repetitions; every Qwen run (pilot, benchmark, hard maps) uses it,
+  so its LLM-A* and Quorum-A* stay comparable. The other models keep 2,048 · KC.
 - 2026-11-04 · Claude Opus 5.5 as a further model (`experiments/claude.sh`, KC's request; paid from the Claude Max
   plan's monthly API credits). It always thinks before answering and its API rejects temperature, top_p and JSON
   mode, so it runs with the model's own sampling (`--model-sampling`, max_tokens 16,000 as a limit for thinking +
@@ -459,6 +467,15 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   33.54, shared few-shot 32.62, CoT 33.09, roles 33.55 are all p >= 0.1. Cost per 1,000 queries (Quorum-A* /
   LLM-A*): gpt-4o-mini $0.91 / $0.45, gpt-4.1-mini $2.43 / $1.92, gpt-4.1 $12.16 / $6.49 (3 calls, about 5,900
   prompt tokens per query). gpt-4.1-nano: retired by OpenAI on 2026-10-23 (every call 404), no results.
+
+- 2026-11-04 evening · Claude Opus 5.5 (`experiments/claude.sh main`, model's own sampling, thinking always on) ·
+  benchmark 1,000 · `outputs/claude/claude-opus-5-5/`. Ops / storage / length: LLM-A* 30.75 / 54.05 / 101.02,
+  Quorum-A* 30.04 / 53.55 / 101.23, weighted A* 34.32 / 56.23 / 102.02. The first model whose LLM-A* beats weighted A*
+  (499 / 373 / 128 queries, ops ratio 89.6, p < 0.001). Quorum-A* vs LLM-A* 306 / 493 / 201 (97.7, p < 0.001), vs
+  weighted A* 570 / 278 / 152 (87.5, p < 0.001); waypoints kept to the end on 732 queries (83.3 vs weighted A*), stall
+  fallback on 218 (100.3). Reading: with a model good enough that LLM-A* helps, the vote still adds a small,
+  significant gain. Cost per 1,000 queries (thinking included): LLM-A* $25.19 (801 + 1,099 tokens), Quorum-A* $54.32
+  (3 calls, 7,128 + 1,290 tokens); the 20-query check about $1.6. Hard maps not run (API credit budget). No failed calls.
 
 ## Open questions
 - Q10. `--stall-k` default: 2 (METHOD.md) fired on the Fig. 1 query one pop early. Keep 2 and let the pilot decide, or

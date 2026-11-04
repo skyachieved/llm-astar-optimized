@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 from llmastar.figures.common import INK, MUTED, save
 from llmastar.figures.fig7_tradeoff import AQUA, GRID, ORANGE, SURFACE, YELLOW
-from llmastar.report import KINDS, MODELS, metrics
+from llmastar.report import KINDS, MODELS, SKIPPED, metrics
 
 SERIES = [  # run, label, color, marker
     ("wastar-w2", "Weighted A* (w = 2)", YELLOW, "o"),
@@ -36,7 +36,7 @@ def panels(outputs):
             for run, *_ in SERIES:
                 m = metrics(folder, run)
                 ops[run] = m["operation"] if m else None
-            rows.append((label, ops))
+            rows.append((label, ops, SKIPPED.get(model) if title != "Benchmark (1,000 queries)" else None))
         out.append((title, rows))
     return out
 
@@ -50,13 +50,13 @@ def main(argv=None):
     fig, axes = plt.subplots(1, len(data), figsize=(13, 3.4), facecolor=SURFACE, sharey=True)
     for ax, (title, rows) in zip(axes, data):
         ax.set_facecolor(SURFACE)
-        values = [v for _, ops in rows for v in ops.values() if v is not None]
+        values = [v for _, ops, _ in rows for v in ops.values() if v is not None]
         lo, hi = (min(values), max(values)) if values else (0, 100)
         pad = max(1.0, 0.12 * (hi - lo))
-        for y, (label, ops) in enumerate(rows):
+        for y, (label, ops, skipped) in enumerate(rows):
             present = [v for v in ops.values() if v is not None]
             if not present:
-                ax.text((lo + hi) / 2, y, "not run yet", ha="center", va="center", fontsize=8, color=MUTED)
+                ax.text((lo + hi) / 2, y, skipped or "not run yet", ha="center", va="center", fontsize=8, color=MUTED)
                 continue
             ax.plot([min(present), max(present)], [y, y], color=GRID, linewidth=2, zorder=1)
             for run, name, color, marker in SERIES:

@@ -78,6 +78,11 @@ paired Wilcoxon p):
 | GPT-4o mini | 50.52 | 33.95 | 249 / 508 / 243, p = 0.6 |
 | GPT-4.1 mini | 42.21 | 33.39 | 274 / 499 / 227, p = 0.012 |
 | GPT-4.1 | 39.90 | 33.53 | 312 / 456 / 232, p < 0.001 |
+| Claude Opus 5.5\* | 30.75 | 30.04 | 570 / 278 / 152, p < 0.001 |
+
+\*Always thinks before answering and fixes its own sampling, so it runs without temperature 0 (a separate check, not the
+same setting). It is the only model whose LLM-A\* beats weighted A\*, and Quorum-A\* still beats LLM-A\* there
+(306 / 493 / 201 queries, p < 0.001).
 
 Every table of the report (harder maps, cost, ablations, pilot) is in
 [`outputs/report/tables.md`](outputs/report/tables.md), written by `python -m llmastar.report` from the per-query

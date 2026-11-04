@@ -18,9 +18,14 @@ set -u
 cd "$(dirname "$0")/.."
 : "${OPENAI_API_KEY:?set OPENAI_API_KEY=dummy (the local server ignores it)}"
 MODEL=qwen2.5-vl-7b-instruct
-API="--model $MODEL --base-url ${QWEN_URL:-http://127.0.0.1:8012/v1} --prompt-set llama"
+# max_tokens 512 and a 1-hour timeout (2026-11-04): on the fp16 V100 server a degenerate answer that repeats itself up to
+# the limit is written at about 1.4 tokens/s, so 2,048 tokens took about 24 minutes and the 60 s timeout failed it
+# again and again. Normal answers are far shorter (LLM-A* about 24 tokens, a view under 100), so the cap only cuts those
+# repetitions; it enters the run names (-max512), which keeps the difference from the other models visible.
+SUF="-max512"
+API="--model $MODEL --base-url ${QWEN_URL:-http://127.0.0.1:8012/v1} --prompt-set llama --max-tokens 512 --timeout 3600"
 FAST="--workers 32"
-QUORUM="--workers 16"
+QUORUM="--workers 10"  # 3 views each: 30 requests, under the server's --max-num-seqs 32
 
 failed_calls() {  # number of records with a failed call in the newest raw log under $1
   python - "$1" <<'EOF'
@@ -51,7 +56,7 @@ llm() {  # llm <out dir> <args...>: run, then rerun while calls failed (cached a
 report() {
   python -m llmastar.summary --model $MODEL --out "$1"
   python -c "from llmastar.quorumastar.pilot import split_table; print('\n'.join(split_table('$1/$MODEL')))"
-  python -m llmastar.analysis --dir "$1/$MODEL"
+  python -m llmastar.analysis --dir "$1/$MODEL" --baseline "llmastar_standard$SUF"
 }
 
 check() {  # does the fp16 V100 server answer in a parsable format, and read an image? (10 queries)
@@ -61,15 +66,15 @@ check() {  # does the fp16 V100 server answer in a parsable format, and read an 
   llm $out --method quorumastar --views text,corners,image --vision $API $QUORUM --limit 10
   python - <<EOF
 import json
-for name in ("llmastar_standard", "quorumastar"):
+for name in ("llmastar_standard$SUF", "quorumastar$SUF"):
     rows = [json.loads(l) for l in open("$out/$MODEL/raw/" + name + ".jsonl")]
-    if name == "llmastar_standard":
+    if name.startswith("llmastar_standard"):
         print(name, "parsed", sum(r["parse_ok"] for r in rows), "/ 10;", repr(rows[0]["response"][:300]))
     else:
         views = [v for r in rows for v in r["views"]]
         print(name, "views answered", sum(not v["abstained"] for v in views), "/", len(views), ";",
               repr(views[0]["response"][:200]))
-rows = [json.loads(l) for l in open("$out/$MODEL/raw/quorumastar-vtext+corners+image-vision.jsonl")]
+rows = [json.loads(l) for l in open("$out/$MODEL/raw/quorumastar-vtext+corners+image-vision$SUF.jsonl")]
 image = [v for r in rows for v in r["views"] if v["view"] == "image"]
 judge = [r["judge"] for r in rows if r.get("judge")]
 print("image view answered", sum(not v["abstained"] for v in image), "/", len(image), "; judge answered",
@@ -87,7 +92,7 @@ pilot() {  # the image view and the vision judge on the pilot maps, with a secon
   llm $out --method quorumastar --vision $API $data $QUORUM                          # + vision judge
   llm $out --method quorumastar --views text,corners,image $API $data $QUORUM        # image instead of relations
   llm $out --method quorumastar --views text,corners,image,relations --vision $API $data $QUORUM  # all four + judge
-  python -m llmastar.quorumastar.pilot report --dir $out/$MODEL --run "quorumastar-vtext+corners+image+relations-vision"
+  python -m llmastar.quorumastar.pilot report --dir $out/$MODEL --run "quorumastar-vtext+corners+image+relations-vision$SUF"
   report $out
 }
 
@@ -99,7 +104,7 @@ main() {  # the comparison on all 1,000 benchmark queries
   llm $out --method quorumastar $API $QUORUM
   llm $out --method quorumastar --views text --fewshot paper --add-quorum 1 --no-snap --stall-k 0 $API $FAST  # all off
   report $out
-  python -m llmastar.figures.fig7_tradeoff --model $MODEL --out $out
+  python -m llmastar.figures.fig7_tradeoff --model $MODEL --out $out --suffix="$SUF"
 }
 
 hard() {  # the harder generated maps

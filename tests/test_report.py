@@ -45,8 +45,20 @@ def test_fig8_marks_models_not_run(tmp_path, monkeypatch):
     _write(out / "gpt" / "gpt-4o-mini", OPS)
     monkeypatch.chdir(tmp_path)
     data = fig8_models.panels(out)
-    bench = dict(data[0][1])
+    bench = {label: ops for label, ops, _ in data[0][1]}
     assert bench["GPT-4o mini"]["quorumastar"] is not None
     assert bench["GPT-4.1"]["quorumastar"] is None
+    assert data[1][1][-1][2] == "not run (API budget)"  # Claude's hard maps are left out on purpose
     fig8_models.main(["--outputs", str(out)])
     assert (tmp_path / "outputs" / "figures" / "fig8_models.png").exists()
+
+
+def test_suffixed_runs_are_found(tmp_path):
+    # Qwen's LLM runs carry -max512 in their names; the tables look them up under the plain name.
+    out = tmp_path / "outputs"
+    ops = {"astar": OPS["astar"], "wastar-w2": OPS["wastar-w2"], "llmastar_standard-max512": OPS["llmastar_standard"],
+           "quorumastar-max512": OPS["quorumastar"]}
+    _write(out / "qwen" / "qwen2.5-vl-7b-instruct", ops)
+    text = report.build(out)
+    assert "| Qwen2.5-VL-7B | Quorum-A* | 31.07 |" in text
+    assert "| Qwen2.5-VL-7B | 3 / 0 / 0 | 64.4 |" in text

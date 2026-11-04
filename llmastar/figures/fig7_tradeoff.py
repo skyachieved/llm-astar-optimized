@@ -64,11 +64,14 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--model", default="gpt-4o-mini")
     p.add_argument("--out", default=str(OUTPUTS_ROOT), help="outputs root holding <model>/summary.csv")
+    p.add_argument("--suffix", default="", help="run-name suffix to read past, e.g. -max512 (llmastar_standard-max512)")
     args = p.parse_args(argv)
     path = Path(args.out) / model_slug(args.model) / "summary.csv"
     if not path.exists():
         raise SystemExit(f"{path} not found; run `python -m llmastar.summary --model {args.model} --out {args.out}`")
     s = read_summary(path)
+    if args.suffix:
+        s = {(r[:-len(args.suffix)] if r.endswith(args.suffix) else r): row for r, row in s.items()}
 
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.6), facecolor=SURFACE)
     for ax, metric, title in ((axes[0], "operation", "Operations"), (axes[1], "storage", "Storage")):
