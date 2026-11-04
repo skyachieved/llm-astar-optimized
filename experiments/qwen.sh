@@ -10,7 +10,8 @@
 #          --enforce-eager --limit-mm-per-prompt '{"image": 1}' --generation-config vllm --seed 0
 #   2. In another window (repository folder, .venv), with a dummy key (never the OpenAI key):
 #        OPENAI_API_KEY=dummy bash experiments/qwen.sh check     # 10 queries: answers parse? (fp16 sanity check)
-#        OPENAI_API_KEY=dummy bash experiments/qwen.sh all 2>&1 | tee experiments_qwen.log
+#        OPENAI_API_KEY=dummy bash experiments/qwen.sh all 2>&1 | tee experiments_qwen.log   # pilot, main, hard
+#      `pilot` alone (about 15 min) is the image-view / judge check; `main` and `hard` the text-only comparison.
 #
 # Prompts: LLM-A* uses the paper's few-shot dialogue as chat turns (--prompt-set llama), as in our Llama-3 Table 1.
 set -u
@@ -52,10 +53,11 @@ report() {
   python -m llmastar.analysis --dir "$1/$MODEL"
 }
 
-check() {  # does the fp16 V100 server answer in a parsable format? (10 queries, prints the first answers)
+check() {  # does the fp16 V100 server answer in a parsable format, and read an image? (10 queries)
   local out=outputs/qwen_check
   llm $out --method llmastar $API $FAST --limit 10
   llm $out --method quorumastar $API $QUORUM --limit 10
+  llm $out --method quorumastar --views text,corners,image --vision $API $QUORUM --limit 10
   python - <<EOF
 import json
 for name in ("llmastar_standard", "quorumastar"):
@@ -66,7 +68,26 @@ for name in ("llmastar_standard", "quorumastar"):
         views = [v for r in rows for v in r["views"]]
         print(name, "views answered", sum(not v["abstained"] for v in views), "/", len(views), ";",
               repr(views[0]["response"][:200]))
+rows = [json.loads(l) for l in open("$out/$MODEL/raw/quorumastar-vtext+corners+image-vision.jsonl")]
+image = [v for r in rows for v in r["views"] if v["view"] == "image"]
+judge = [r["judge"] for r in rows if r.get("judge")]
+print("image view answered", sum(not v["abstained"] for v in image), "/", len(image), "; judge answered",
+      sum(not j["abstained"] for j in judge), "/", len(judge), ";", repr((image[0]["response"] or image[0]["error"])[:200]))
 EOF
+}
+
+pilot() {  # the image view and the vision judge on the pilot maps, with a second (open) VLM: does dropping them
+  # hold beyond gpt-4o-mini? Self-generated maps only, as for every design decision (METHOD.md 11).
+  local out=outputs/qwen_pilot data="--dataset dataset/generated/pilot.json"
+  python -m llmastar.run --method astar $API $data --out $out
+  python -m llmastar.run --method wastar --weight 2 $API $data --out $out
+  llm $out --method llmastar $API $data $FAST
+  llm $out --method quorumastar $API $data $QUORUM                                   # default: text only
+  llm $out --method quorumastar --vision $API $data $QUORUM                          # + vision judge
+  llm $out --method quorumastar --views text,corners,image $API $data $QUORUM        # image instead of relations
+  llm $out --method quorumastar --views text,corners,image,relations --vision $API $data $QUORUM  # all four + judge
+  python -m llmastar.quorumastar.pilot report --dir $out/$MODEL --run "quorumastar-vtext+corners+image+relations-vision"
+  report $out
 }
 
 main() {  # the comparison on all 1,000 benchmark queries
@@ -92,7 +113,7 @@ hard() {  # the harder generated maps
 }
 
 case "${1:-all}" in
-  check) check ;; main) main ;; hard) hard ;; all) main; hard ;;
-  *) echo "usage: OPENAI_API_KEY=dummy bash experiments/qwen.sh [check|main|hard|all]"; exit 2 ;;
+  check) check ;; pilot) pilot ;; main) main ;; hard) hard ;; all) pilot; main; hard ;;
+  *) echo "usage: OPENAI_API_KEY=dummy bash experiments/qwen.sh [check|pilot|main|hard|all]"; exit 2 ;;
 esac
 echo "done: $(date)"
