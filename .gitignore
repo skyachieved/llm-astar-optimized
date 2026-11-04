@@ -146,3 +146,4 @@ scripts/
 /pilot/
 /experiments_*.log
 /outputs/qwen_check/
+/outputs/claude_check/

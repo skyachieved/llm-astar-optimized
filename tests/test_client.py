@@ -131,3 +131,21 @@ def test_run_flags_name_the_original_setup():
     from llmastar.run import llm_variant, parse_args
     assert llm_variant(parse_args(["--method", "llmastar"])) is None
     assert llm_variant(parse_args(["--method", "llmastar", "--stop-newline", "--max-tokens", "100"])) == "stopnl-max100"
+
+
+def test_model_sampling_sends_only_max_tokens(tmp_path):
+    # Claude Opus 5.5 on Anthropic's OpenAI-compatible endpoint rejects temperature, top_p and json_object.
+    client = make_client(["a", "b"], tmp_path, model_sampling=True, max_tokens=16000)
+    key = client.chat_with_info(MESSAGES, json_mode=True)[1]["cache_key"]
+    assert client._client.calls[0] == {"max_tokens": 16000}
+    default = make_client(["c"], tmp_path, max_tokens=16000)
+    assert default.chat_with_info(MESSAGES)[1]["cache_key"] != key  # never served a fixed-sampling answer
+
+
+def test_run_flags_for_thinking_models_keep_run_names():
+    from llmastar.run import build_generator, llm_variant, parse_args
+    args = parse_args(["--method", "llmastar", "--model-sampling", "--max-tokens", "16000", "--timeout", "300"])
+    assert llm_variant(args) is None  # a higher limit only leaves room; the folder tells the runs apart
+    args.generator, args.prompt_set = "prompt", "gpt"
+    client = build_generator(args).client
+    assert client.model_sampling and client.timeout == 300 and client.sampling["max_tokens"] == 16000

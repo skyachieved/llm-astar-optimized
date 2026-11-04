@@ -253,6 +253,12 @@ efficient search, at the cost of more LLM calls.
       work from artifacts.
 
 ## Decisions (date · decision · reason; superseded ones are marked, never deleted)
+- 2026-11-04 · Claude Opus 5.5 as a further model (`experiments/claude.sh`, KC's request; paid from the Claude Max
+  plan's monthly API credits). It always thinks before answering and its API rejects temperature, top_p and JSON
+  mode, so it runs with the model's own sampling (`--model-sampling`, max_tokens 16,000 as a limit for thinking +
+  answer). This breaks "same settings for every model", the reason reasoning models (gpt-5, o-series) were left out,
+  so its rows are marked and read as a separate check: does the vote still help when the model reasons first? A
+  20-query `check` measures tokens and cost before any full run · KC.
 - 2026-11-03 · `LLMAStar(llm='gpt')` = GPT-4o mini (was gpt-3.5-turbo), Chat Completions, `prompt_set="gpt"`; the course
   evaluates with GPT-4o mini · KC (to confirm with the team). `python -m llmastar.table1` runs every Table 1 row.
 - 2026-10-29 · Generators register in `llmastar/waypoints/REGISTRY`; the search consumes a waypoint list · swappable step.
@@ -459,6 +465,10 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-04 (yumin0-0) · `--model-sampling` and `--timeout` in `llmastar/run.py` (client sends only max_tokens;
+  default runs and their cache keys unchanged, tested), `experiments/claude.sh` (check / main / hard for Claude Opus
+  5.5 on Anthropic's OpenAI-compatible endpoint, key from ANTHROPIC_API_KEY), Claude row in `llmastar/report.py`.
+  Dry run against a strict fake endpoint that rejects temperature / top_p / seed / response_format: no rejection.
 - 2026-11-04 (yumin0-0) · `llmastar/stats.py` (paired Wilcoxon signed-rank and sign tests, standard library only,
   checked against scipy), `llmastar/report.py` (`outputs/report/tables.md`: every report table from the committed
   CSVs, "not run yet" for missing runs), `llmastar/figures/fig8_models.py`; tests `test_stats.py`, `test_report.py`.
