@@ -189,6 +189,10 @@ efficient search, at the cost of more LLM calls.
   fixed, none left). Steps 3 and 5 done on gpt-4o-mini, step 6 done for the maps (second model waits for free
   GPUs). Results are committed under `outputs/gpt*/gpt-4o-mini/` (see Results). Next: failure cases, cost table,
   submission check, then the report.
+- 2026-11-04 afternoon: judge-off rerun of every gpt-4o-mini run, gpt-4.1-mini and gpt-4.1 done and merged into `main`
+  (PRs #4, #5; `quorumastar` merged and deleted, so PRs now go to `main`); Qwen2.5-VL-7B (`experiments/qwen.sh all`)
+  running on dgx GPUs 6-7. Report tables and figures come from `python -m llmastar.report` and
+  `python -m llmastar.figures.fig8_models`; Qwen fills in when its outputs are committed. Next: the report (KC writes it).
 
 ## Next steps
 - [x] 1. Read the repo and REPRODUCTION.md; write agent.md and METHOD.md. *(2026-11-03; layout = METHOD.md §10)*
@@ -231,10 +235,14 @@ efficient search, at the cost of more LLM calls.
 - [ ] 6. Harder generated maps (mazes, more walls, 2–3× size; fixed seed; held-out split never used for defaults) and a
       second model. *(2026-11-04: `python -m llmastar.generate_maps` (dense, large, zigzag; 100 each, seed 1, committed
       in `dataset/generated/`); runs in `experiments/gpt-4o-mini.sh hard`.)*
+      *(2026-11-04 afternoon: second models gpt-4.1-mini and gpt-4.1 done (`experiments/other-models.sh`);
+      Qwen2.5-VL-7B running.)*
 - [ ] 7. Report support: export what the report needs from `outputs/` only: Table 1 vs. paper; Quorum-A* vs. A*, LLM-A*
       and weighted A* (ops vs. length trade-off with the weighted-A* frontier); ablation bars; failure cases and failed
       experiments, explained; cost table (calls, tokens, seconds per query); reproducibility appendix (models, decoding
       settings, prompts, hardware, commands). Every number cites its output file.
+      *(2026-11-04: `python -m llmastar.report` -> `outputs/report/tables.md` (benchmark, harder maps, cost,
+      ablations, pilot, with paired tests); `fig8_models` for the model comparison.)*
 - [ ] 8. Report drafts *(proposed)*: outline per required section, then DRAFT text clearly marked; the user rewrites it.
       Check that every sentence describes what the code does (report–code consistency) and every reference is verified.
 - [ ] 9. Submission package: zip from a clean checkout; fresh Python 3.11 env with only `requirements.txt`; run the README
@@ -384,7 +392,7 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   waypoints kept on 10/50 (ops 94.1 vs weighted A*); text,corners,relations 23.38 / 48.30 / 103.31, kept on 7/50
   (ops 75.2, storage 87.0 vs weighted A*); every query without waypoints equals weighted A* (100.0).
 
-- 2026-11-04 · Main comparison · gpt-4o-mini · all 1,000 queries · `outputs/gpt/gpt-4o-mini/summary.md`.
+- *(Judge-on default; superseded by the 2026-11-04 afternoon rerun below.)* 2026-11-04 · Main comparison · gpt-4o-mini · all 1,000 queries · `outputs/gpt/gpt-4o-mini/summary.md`.
   Ops / storage / length (A* = 100): llmastar standard 50.52 / 68.38 / 102.95, cot 48.53 / 67.07 / 102.73, repe
   50.84 / 68.97 / 102.51; wastar w = 1.5 40.06 / 60.26 / 100.74, w = 2 34.32 / 56.23 / 102.02, w = 3 29.92 / 53.26 /
   103.68; Quorum-A* 34.10 / 56.09 / 102.03; dwastar 59.49 / 78.65 / 100.25; all valid 100%. Quorum-A* does 32.5%
@@ -399,7 +407,7 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   responses checked): gpt-4o-mini opens with a sentence ("To find a path from the start point [5, 5] to the goal point
   [20, 20] while navigating ...") and a newline, so stop "\n" ends the answer before "Generated Path:"; the
   original repository's completion-era stop setting does not fit a chat model.
-- 2026-11-04 · Ablations · gpt-4o-mini · first 300 queries (maps 0-29) · `outputs/gpt_ablation300/gpt-4o-mini/`.
+- *(Judge-on default; superseded by the 2026-11-04 afternoon rerun below.)* 2026-11-04 · Ablations · gpt-4o-mini · first 300 queries (maps 0-29) · `outputs/gpt_ablation300/gpt-4o-mini/`.
   Ops / storage / length: wastar w = 2 33.19 / 55.41 / 101.88; llmastar 48.31 / 67.18 / 102.76; Quorum-A* default
   32.97 / 55.36 / 101.88. One view, no vote (add-quorum 1): text 35.82, corners 37.34, relations 36.09 ops; all three
   views without a vote (union, add-quorum 1) 35.59; unanimity (add-quorum 3) 32.69; image instead of relations
@@ -407,7 +415,7 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   views and checks alone take LLM-A*'s 48.3 to about 36, and the vote takes it to weighted A*'s level (33); the
   single-view runs pay for stalls (stall fallback fired on 88 of the 92 queries left without waypoints, text view).
   The defaults stay as fixed on the pilot (these are evaluation queries); variants within 0.5 points are noise.
-- 2026-11-04 · Harder generated maps (`dataset/generated/`, 100 each) · gpt-4o-mini · `outputs/gpt_{dense,large,
+- *(Judge-on default; superseded by the 2026-11-04 afternoon rerun below.)* 2026-11-04 · Harder generated maps (`dataset/generated/`, 100 each) · gpt-4o-mini · `outputs/gpt_{dense,large,
   zigzag}/gpt-4o-mini/`. Ops / storage / length: dense: wastar 26.90 / 49.98 / 102.77, llmastar 53.84 / 72.50 /
   103.48, Quorum-A* 26.48 / 49.74 / 102.75 (waypoints kept on 12, 87.2 ops vs wastar); large (101 x 61): wastar
   20.10 / 33.77 / 103.38, llmastar 48.17 / 58.89 / 103.93 (253.4 ops vs wastar where it used waypoints), Quorum-A*
@@ -415,7 +423,7 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   Quorum-A* 95.42 / 85.48 / 100.65 (kept on 5). LLM-A* gets worse with map difficulty; Quorum-A* never falls below
   weighted A*, but keeps few waypoints on large and zigzag maps, so it gains little there (a limitation).
 
-- 2026-11-04 · Failure cases and cost (from the CSVs, `python -m llmastar.analysis`) · gpt-4o-mini · all 1,000.
+- *(Judge-on default; superseded by the 2026-11-04 afternoon rerun below.)* 2026-11-04 · Failure cases and cost (from the CSVs, `python -m llmastar.analysis`) · gpt-4o-mini · all 1,000.
   Against weighted A* (w = 2), Quorum-A* wins / ties / loses on 74 / 873 / 53 queries (LLM-A*: 203 / 139 / 658);
   against LLM-A*, 669 / 125 / 206. What reached the search: no waypoint on 792 queries (= weighted A*, 100.0),
   waypoints kept to the end on 156 (93.4 ops; 58 better, 67 equal, 31 worse), stall fallback on 52 (109.1; 16 / 14 /
@@ -423,11 +431,39 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   prompt + 50 completion tokens per query ($4.86 per 1,000 queries at $0.15 / $0.60 per 1M); without the judge
   5,895 + 46 ($0.91): the judge's image is 81% of the cost, and on these queries removing it changes ops by -0.15.
 
+- 2026-11-04 afternoon · Rerun under the new default (vision judge off), and two more models with the same defaults ·
+  every number from `outputs/report/tables.md` (`python -m llmastar.report`, paired tests in `llmastar/stats.py`).
+  Benchmark (1,000), ops / storage / length: gpt-4o-mini Quorum-A* 33.95 / 56.08 / 102.00, LLM-A* 50.52 / 68.38 /
+  102.95; gpt-4.1-mini 33.39 / 55.79 / 101.95 vs 42.21 / 63.09 / 102.26; gpt-4.1 33.53 / 55.67 / 101.84 vs 39.90 /
+  61.19 / 102.51; weighted A* (w = 2) 34.32 / 56.23 / 102.02. Quorum-A* vs LLM-A* per query: 681 / 86 / 233,
+  545 / 148 / 307, 546 / 146 / 308 (p < 0.001 each, Wilcoxon and sign). Vs weighted A*: 249 / 508 / 243 (p = 0.6),
+  274 / 499 / 227 (p = 0.012), 312 / 456 / 232 (p < 0.001). Reading: stronger models make LLM-A* better (50.5 ->
+  39.9) but never as good as weighted A*; Quorum-A* is about 33.5 on every model and beats weighted A* significantly
+  only with the stronger models. What reached the search (gpt-4o-mini / 4.1-mini / 4.1, ops vs weighted A*): no
+  waypoint 326 / 314 / 244 queries (100.0); waypoints kept 462 / 507 / 541 (91.9 / 92.6 / 92.3); stall fallback
+  212 / 179 / 215 (114.2 / 106.6 / 109.7): kept waypoints help, the stall fallback is where the remaining loss is.
+  Harder maps (ops; weighted A* dense 26.90, large 20.10, zigzag 95.42): Quorum-A* 27.01 / 20.16 / 95.35
+  (gpt-4o-mini), 27.48 / 20.50 / 95.41 (4.1-mini), 27.61 / 20.43 / 95.44 (4.1), no difference from weighted A* that
+  a test can see (p >= 0.37); LLM-A* 53.84 / 48.17 / 94.94, 41.36 / 49.66 / 96.01, 40.80 / 40.38 / 96.14. On zigzag
+  maps nothing differs by more than about 1 point, and with gpt-4o-mini LLM-A* wins more queries than Quorum-A*
+  (55 vs 26, p = 0.0027): a limitation. gpt-4o-mini ablations, 1,000: + judge 34.10 (p = 0.54), no removal 34.05
+  (p = 0.13), no stall fallback 35.32 (p < 0.001); first 300 (default 33.18, weighted A* 33.19, LLM-A* 48.31):
+  union without a vote 41.61 (p < 0.001), single views 36.34 / 37.41 / 36.54 (text / corners / relations), no few-shot
+  35.96 (p = 0.0012); unanimity 32.69, image instead of relations 33.57, four views 33.63, judge 32.97, no snap
+  33.54, shared few-shot 32.62, CoT 33.09, roles 33.55 are all p >= 0.1. Cost per 1,000 queries (Quorum-A* /
+  LLM-A*): gpt-4o-mini $0.91 / $0.45, gpt-4.1-mini $2.43 / $1.92, gpt-4.1 $12.16 / $6.49 (3 calls, about 5,900
+  prompt tokens per query). gpt-4.1-nano: retired by OpenAI on 2026-10-23 (every call 404), no results.
+
 ## Open questions
 - Q10. `--stall-k` default: 2 (METHOD.md) fired on the Fig. 1 query one pop early. Keep 2 and let the pilot decide, or
   change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-04 (yumin0-0) · `llmastar/stats.py` (paired Wilcoxon signed-rank and sign tests, standard library only,
+  checked against scipy), `llmastar/report.py` (`outputs/report/tables.md`: every report table from the committed
+  CSVs, "not run yet" for missing runs), `llmastar/figures/fig8_models.py`; tests `test_stats.py`, `test_report.py`.
+  README results now cover three models; METHOD.md §9 names GPT-4o mini as the model (Qwen was planned first).
+  Removed `fig6_methods_gpt-4o-mini_q34-2` (case study of the judge-on run, whose traces were replaced by the rerun).
 - 2026-11-04 (yumin0-0) · `experiments/other-models.sh` on gpt-4.1-mini: done (benchmark 1,000 + hard maps,
   `outputs/other*/gpt-4.1-mini/`). gpt-4.1-nano: every call returned 404 "model deprecated" (OpenAI shut it down on
   2026-10-23), so it has no results; its outputs were not committed. The script now makes one test call before any run
