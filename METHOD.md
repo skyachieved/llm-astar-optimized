@@ -42,7 +42,9 @@ graph) are excluded because their errors would be shared; ASCII grids are exclud
 receives the map images. The VLM acts as a single judge, prompted once per map, and keeps or discards the numbered
 waypoints ("Do NOT create any new waypoints"). MMP-A* also damps the waypoint term of the heuristic by α^k (α = 0.7).
 Quorum-A* keeps the search's heuristic as it is. It replaces the single judge with a majority of three checks, of which
-the vision judge is one.
+the vision judge is one. The pilot (§11) found that with GPT-4o mini the judge did not pay for its cost (it is 81-85%
+of the tokens and removed mostly good waypoints), so it is off by default (`--vision` turns it on) and the majority
+uses the code and support checks.
 
 The stall fallback bounds the cost of a misleading plan. If waypoint guidance stalls, the search continues as
 weighted A* with w = 2, exactly what LLM-A* does when it has no waypoints.
@@ -57,7 +59,7 @@ Quorum-A*(query):                                         # query = map + start/
   lists   = [canonicalize(a.points) if SNAP else a.points  for a in answers if not a.abstained]
   W       = majority_add(lists, ADD_QUORUM)          # ids + support (= number of proposing views)
   if REMOVE_QUORUM > 0:
-      W   = majority_remove(W, query, REMOVE_QUORUM, vision = not NO_VISION)
+      W   = majority_remove(W, query, REMOVE_QUORUM, vision = VISION)   # VISION off by default
   # search (llmastar/pather/): LLM-A*'s loop, unchanged, plus the stall hook (§7)
   return QuorumAStar(stall_k=STALL_K).searching(query, waypoints=coordinates(W))
 ```
@@ -107,7 +109,8 @@ the last bracketed list in the text (`parse_waypoints` rule).
   text part gives only the grid size and the start and goal coordinates (needed to answer in coordinates), never the
   barrier list.
   If the model has no image input, the request fails and the view abstains (logged).
-- At most 4 LLM calls per query by default: 3 views + the vision judge (§4.5). Adding `image` to `--views` adds a call.
+- 3 LLM calls per query by default, one per view. `--vision` adds the judge's call (§4.5), and adding `image` to
+  `--views` adds another.
 - A view **abstains** if its call errors or its answer has no parsable list. An abstaining view casts no vote.
 - `--cot` (off): each view first gives brief reasoning in a `"reasoning"` field of the same JSON object (so JSON
   mode still applies), then `"waypoints"`. `--roles` (off): each view gets its own
@@ -140,7 +143,7 @@ With `--no-snap`, points are used as proposed (floats included). Corner ids stil
 
 **4.4 Majority add** (`--add-quorum` [2]); see §3. With a single answering view and quorum 1, it is the identity.
 
-**4.5 Majority remove** (`--remove-quorum` [2], 0 = off; `--no-vision` drops check (b)); see §3.
+**4.5 Majority remove** (`--remove-quorum` [2], 0 = off; `--vision` adds check (b), off by default since the pilot); see §3.
 - The **vision judge** is one call per query. It gets the §4.1 image with the post-add waypoints drawn as numbers 1..n,
   connected by a dashed line from S to G. Prompt: remove waypoints that lie on or against a wall, or whose route
   crosses a wall or leads into a dead end; never add or move any. Answer: `{"remove": [2, 5]}`.
@@ -170,13 +173,13 @@ A* with w = 2. The fallback fires at most once per query, and it is logged with 
 | `--snap-cell-radius`, `--snap-corner-radius` | 2, 3 | §4.3 |
 | `--add-quorum` | 2 | §4.4 |
 | `--remove-quorum` | 2 | §4.5; 0 = no pruning |
-| `--vision / --no-vision` | on | vision judge (check b) |
+| `--vision / --no-vision` | off | vision judge (check b); off since the pilot (§11) |
 | `--stall-k`, `--stall-min` | 2, 20 | §4.7; `--stall-k 0` = off |
 | `--temperature`, `--max-tokens` | 0, 2048 | sampling (existing flags) |
 | `--model`, `--base-url`, `--api-key` | `llama-3-8b-instruct`, `$OPENAI_BASE_URL` or `http://127.0.0.1:8000/v1`, `$OPENAI_API_KEY` | endpoint; the key is never logged or cached |
 
 The run name is `quorumastar` for the defaults; non-default flags are appended in a fixed order as `-<variant>`, as
-for `dwastar` (e.g. `quorumastar-novision`).
+for `dwastar` (e.g. `quorumastar-vision`).
 
 ## 6. "All off" reproduces LLM-A*
 

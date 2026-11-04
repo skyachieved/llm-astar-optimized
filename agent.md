@@ -82,7 +82,7 @@ query (map + start/goal)
                     ▼
    majority REMOVE: per waypoint 3 checks — code (both path segments hit walls),
    vision (judge call on the image), support (fewer votes than answering views);
-   remove if ≥ q checks object; an abstaining check counts as no objection           --remove-quorum 2, --no-vision
+   remove if ≥ q checks object; an abstaining check counts as no objection           --remove-quorum 2, --vision (off)
                     ▼
    waypoint list ─► LLM-A* search, UNCHANGED ─► operation / storage / length / path
                       └─ stall hook: pops since target active > k·max(20, Manhattan) ⇒ drop waypoints, target = goal   --stall-k 2
@@ -283,6 +283,12 @@ efficient search, at the cost of more LLM calls.
   difference is small (n = 50), so the tie goes to relations' higher solo quality (62.4% vs 57.8%) and lower cost (no
   image view; the judge is then the only image call). The judge stays: it keeps few waypoints but they beat weighted
   A* (75.2 ops on the 7 queries that kept one), and every other query runs exactly as weighted A*. Resolves Q11 · KC.
+- 2026-11-04 · The vision judge is off by default (`--vision` turns it on); resolves Q12. Pilot maps, default views
+  (`outputs/pilot/gpt-4o-mini/`, cost from the raw logs): with judge 23.38 / 48.30 / 103.31 at $5.11 per 1,000
+  queries, without 22.93 / 48.34 / 102.94 at $0.89 (3.00 requests and 5,745 prompt tokens per query instead of 3.76
+  and 33,886). No gain for 5.7x the cost, so the default drops it; the 1,000-query benchmark agrees (33.95 vs 34.10)
+  but was not used to decide. Quorum-A* is now views + vote + code/support removal + stall fallback, 3 calls per query.
+  *Supersedes* "the judge stays" (2026-11-04 entry below) and the 4-call budget's judge slot · KC (asked to proceed).
 - 2026-11-04 · All gpt-4o-mini experiments run from `experiments/gpt-4o-mini.sh` (main, free ablations, ablations,
   Table 1 rows, hard maps). Ablations that need new LLM calls use the first 300 benchmark queries (maps 0-29), at
   about $1.5 per run instead of about $5; the main comparison stays on all 1,000. Hard-map kinds and their parameters
@@ -418,14 +424,27 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   5,895 + 46 ($0.91): the judge's image is 81% of the cost, and on these queries removing it changes ops by -0.15.
 
 ## Open questions
-- Q12 (2026-11-04). The vision judge costs about 5x the rest of Quorum-A* and its effect is within noise on the
-  benchmark. Defaults may only change on pilot evidence: `experiments/gpt-4o-mini.sh analyze` runs the default without
-  the judge on the pilot maps (cached views, no new calls); keep or drop the judge from that, and say which in the
-  report either way.
 - Q10. `--stall-k` default: 2 (METHOD.md) fired on the Fig. 1 query one pop early. Keep 2 and let the pilot decide, or
   change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-04 (yumin0-0) · `experiments/other-models.sh` on gpt-4.1-mini: done (benchmark 1,000 + hard maps,
+  `outputs/other*/gpt-4.1-mini/`). gpt-4.1-nano: every call returned 404 "model deprecated" (OpenAI shut it down on
+  2026-10-23), so it has no results; its outputs were not committed. The script now makes one test call before any run
+  (a retired model stops there), and the retry message no longer prints "attempt 4 of 3". Replacement candidate:
+  gpt-4.1 (same family, larger).
+- 2026-11-04 (yumin0-0) · `experiments/qwen.sh` (second model, Qwen2.5-VL-7B-Instruct on dgx: `check` on 10 queries for
+  the fp16 V100 server, then main 1,000 + hard maps). Quorum-A* is text-only since the judge is off, so no image input
+  is needed on V100. Waits for free GPUs.
+- 2026-11-04 (yumin0-0) · Submission dry run: `git archive` zip (15 MB) of a clean checkout, fresh Python 3.11 venv with
+  only `requirements.txt`: 133 tests pass; `AStar` / `LLMAStar(llm="gpt")` / `QuorumAStar(llm="gpt")` run on an unseen
+  map file with the baseline's result keys (+ `fallback`), and without a key the LLM methods fall back instead of
+  crashing; `python -m llmastar.run --dataset <file>` takes it unchanged. Secret scan: only the fake `sk-secret` in
+  `tests/test_client.py`. To decide at packaging: keep or drop agent.md / CLAUDE.md (internal notes).
+- 2026-11-04 (yumin0-0) · Vision judge off by default (Decisions); `experiments/gpt-4o-mini.sh` runs the judge as an
+  ablation (`--vision`), the all-off check on all 1,000 queries, and picks the case-study queries from the CSVs
+  (`analysis --print-worst`); `llmastar/figures/fig7_tradeoff.py` (ops / storage vs length with the weighted-A*
+  frontier, `tests/test_fig7_tradeoff.py`); `outputs/pilot/README.md` explains the pilot run names.
 - 2026-11-04 (yumin0-0) · `llmastar/analysis.py` (win / tie / loss, what reached the search, worst queries, cost per
   query; `tests/test_analysis.py`), `fig6_methods --query` names case-study figures `_q<map>-<sg>`, and the `analyze`
   step in `experiments/gpt-4o-mini.sh` (traces for cases 34:2, 10:0, 79:5; analysis.md per directory; Q12 on pilot).

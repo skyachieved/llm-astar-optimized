@@ -37,6 +37,7 @@ llm() {  # llm <out dir> <args...>: run, then rerun while calls failed
     python -m llmastar.run "$@" --out "$out" || return 1
     local bad; bad=$(failed_calls "$out/gpt-4o-mini")
     [ "$bad" = "0" ] && return 0
+    [ "$attempt" = 3 ] && break
     echo "!! $bad queries had a failed call; rerunning (attempt $((attempt + 1)) of 3, cached answers are reused)"
   done
   echo "!! failed calls remain after 3 attempts: check the raw log before using this run"
@@ -53,6 +54,8 @@ main() {  # step 3: the four methods on all 1,000 benchmark queries
   python -m llmastar.run --method wastar --weight 2 $API --out $out
   llm $out --method llmastar $API $FAST
   llm $out --method quorumastar $API $QUORUM
+  # "all off" reproduces LLM-A* (METHOD.md 6): same requests as llmastar_standard (all cached), same results
+  llm $out --method quorumastar --views text --fewshot paper --add-quorum 1 --no-snap --stall-k 0 $API $FAST
   report $out
   python -m llmastar.figures.fig6_methods --model gpt-4o-mini --out $out
 }
@@ -61,7 +64,7 @@ free() {  # ablations that reuse the main run's answers (search only) and the ot
   local out=outputs/gpt
   python -m llmastar.run --method wastar --weight 1.5 $API --out $out
   python -m llmastar.run --method wastar --weight 3 $API --out $out
-  llm $out --method quorumastar --no-vision $API $QUORUM
+  llm $out --method quorumastar --vision $API $QUORUM            # the vision judge, off by default since Q12
   llm $out --method quorumastar --remove-quorum 0 $API $QUORUM
   llm $out --method quorumastar --stall-k 0 $API $QUORUM
   report $out
@@ -73,6 +76,7 @@ ablations() {  # step 5: one change at a time, on the first 300 benchmark querie
   python -m llmastar.run --method wastar --weight 2 $API $lim --out $out
   llm $out --method llmastar $API $lim $FAST
   llm $out --method quorumastar $API $lim $QUORUM                                     # the default
+  llm $out --method quorumastar --vision $API $lim $QUORUM                            # + vision judge
   llm $out --method quorumastar --views text --add-quorum 1 $API $lim $QUORUM         # one view, no vote
   llm $out --method quorumastar --views corners --add-quorum 1 $API $lim $QUORUM
   llm $out --method quorumastar --views relations --add-quorum 1 $API $lim $QUORUM
@@ -102,15 +106,17 @@ hard() {  # step 6: generalization to harder generated maps (dataset/generated/,
     python -m llmastar.run --method wastar --weight 2 $API $data --out $out
     llm $out --method llmastar $API $data $FAST
     llm $out --method quorumastar $API $data $QUORUM
+    llm $out --method quorumastar --vision $API $data $QUORUM
     report $out
   done
 }
 
 analyze() {  # step 7: traces for the case studies, then analysis.md (win/tie/loss, failure cases, cost) per directory
-  # The case queries are the worst Quorum-A* queries against weighted A* in outputs/gpt/gpt-4o-mini/analysis.md.
+  # The case queries are the 3 queries where Quorum-A* does most worse than weighted A* (from the CSVs).
   # Rerunning with --trace rewrites the same CSVs (cached answers, deterministic search) and adds the traces.
   local out=outputs/gpt
-  local trace=(--trace "1:*" 34:2 10:0 79:5)
+  local cases; cases=$(python -m llmastar.analysis --dir $out/gpt-4o-mini --print-worst 3)
+  local trace=(--trace "1:*" $cases)
   python -m llmastar.run --method astar $API --out $out "${trace[@]}"
   python -m llmastar.run --method wastar --weight 2 $API --out $out "${trace[@]}"
   llm $out --method llmastar $API $FAST "${trace[@]}"
@@ -118,11 +124,8 @@ analyze() {  # step 7: traces for the case studies, then analysis.md (win/tie/lo
   for d in outputs/gpt outputs/gpt_ablation300 outputs/gpt_dense outputs/gpt_large outputs/gpt_zigzag; do
     python -m llmastar.analysis --dir $d/gpt-4o-mini
   done
-  python -m llmastar.figures.fig6_methods --model gpt-4o-mini --out $out --query 34:2
-  # Q12: the judge's cost/benefit measured where defaults are decided (pilot maps; cached views, no judge calls)
-  llm outputs/pilot --method quorumastar --no-vision --dataset dataset/generated/pilot.json $API $QUORUM
-  python -m llmastar.run --method quorumastar --dataset dataset/generated/pilot.json $API --out outputs/pilot $QUORUM
-  python -m llmastar.analysis --dir outputs/pilot/gpt-4o-mini
+  for q in $cases; do python -m llmastar.figures.fig6_methods --model gpt-4o-mini --out $out --query $q; done
+  python -m llmastar.figures.fig7_tradeoff --model gpt-4o-mini --out $out
 }
 
 case "${1:-all}" in

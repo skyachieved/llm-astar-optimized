@@ -20,7 +20,7 @@ class QuorumConfig:
     snap_corner_radius: float = 3.0
     add_quorum: int = 2
     remove_quorum: int = 2
-    vision: bool = True
+    vision: bool = False  # off since the pilot: no gain for 5.7x the cost (agent.md Decisions 2026-11-04, Q12)
     stall_k: float = 2.0
     stall_min: int = 20
     prompt: str = "standard"  # used by --fewshot paper (the text view then sends LLM-A*'s exact messages)
@@ -47,7 +47,7 @@ class QuorumConfig:
         return cls(**values)
 
     def variant(self):
-        """Run-name suffix for non-default settings, in a fixed order, e.g. quorumastar-novision-k0."""
+        """Run-name suffix for non-default settings, in a fixed order, e.g. quorumastar-vision-k0."""
         d = QuorumConfig()
         parts = []
         if self.views != d.views:
@@ -69,8 +69,8 @@ class QuorumConfig:
             parts.append(f"add{self.add_quorum}")
         if self.remove_quorum != d.remove_quorum:
             parts.append(f"rm{self.remove_quorum}")
-        if not self.vision:
-            parts.append("novision")
+        if self.vision != d.vision:
+            parts.append("vision" if self.vision else "novision")
         if self.stall_k != d.stall_k:
             parts.append(f"k{self.stall_k:g}")
         if self.stall_min != d.stall_min:

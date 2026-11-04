@@ -145,3 +145,4 @@ scripts/
 /outputs_*/
 /pilot/
 /experiments_*.log
+/outputs/qwen_check/

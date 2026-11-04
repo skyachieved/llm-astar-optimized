@@ -20,7 +20,7 @@ from tests.test_client import FakeAPI
 FIXED = {(1, 0), (1, 3), (7, 2), (23, 8), (42, 5), (77, 1)}
 EXAMPLE = {"start": [5, 10], "goal": [45, 12], "range_x": [0, 51], "range_y": [0, 31],
            "horizontal_barriers": [[16, 15, 40]], "vertical_barriers": []}
-IMAGE_VIEWS = QuorumConfig(views=("text", "corners", "image"))  # tests of the image view (not a default since the pilot)
+IMAGE_VIEWS = QuorumConfig(views=("text", "corners", "image"), vision=True)  # image view + judge (both optional)
 
 
 @pytest.fixture(scope="module")
@@ -33,8 +33,8 @@ def queries():
 def test_config_defaults_and_variants():
     assert QuorumConfig().variant() is None
     assert QuorumConfig().views == ("text", "corners", "relations")  # agent.md Decisions 2026-11-04 (pilot)
-    assert QuorumConfig(vision=False).variant() == "novision"
-    assert QuorumConfig.all_off().variant() == "vtext-fspaper-nosnap-add1-novision-k0"
+    assert QuorumConfig(vision=True).variant() == "vision" and not QuorumConfig().vision  # judge off since Q12
+    assert QuorumConfig.all_off().variant() == "vtext-fspaper-nosnap-add1-k0"
     with pytest.raises(ValueError):
         QuorumConfig(views=("text", "sonar"))
 
@@ -169,13 +169,13 @@ def test_generator_votes_judges_and_prunes():
     assert raw["calls"] == 4 and raw["prompt_tokens"] == 40 and raw["llm_error"] == ""
 
 
-def test_default_views_are_text_corners_relations_plus_judge():
+def test_default_is_text_corners_relations_without_judge():
     corner = (14, 15)
     model = ScriptedModel(text=json.dumps({"waypoints": [corner]}), corners=_ids([corner], EXAMPLE),
                           judge='{"remove": []}')  # the scripted model answers relations like text (no image part)
     result = QuorumAStarGenerator(model).generate(EXAMPLE)
     assert [v["view"] for v in result.raw["views"]] == ["text", "corners", "relations"]
-    assert sorted(model.calls) == ["corners", "judge", "text", "text"]  # 4 calls: 3 views + judge
+    assert sorted(model.calls) == ["corners", "text", "text"] and result.raw["judge"] is None  # 3 calls, no judge
     assert result.waypoints == [corner] and result.raw["votes"][0]["support"] == 3
 
 
