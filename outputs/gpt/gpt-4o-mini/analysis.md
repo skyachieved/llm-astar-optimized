@@ -1,6 +1,6 @@
 # Failure cases and cost: outputs/gpt/gpt-4o-mini
 
-Operations of each LLM run against wastar-w2 (= 100) and against llmastar_standard; a win is strictly fewer operations on a query, a tie the same number.
+Operations of each LLM run against wastar-w2 (= 100) and against llmastar_standard; a win is strictly fewer operations on a query, a tie the same number. Left out (fewer than half of the 1000 queries): quorumastar-vtext-fspaper-nosnap-add1-novision-k0.
 
 | run | vs wastar-w2: win / tie / loss | ops (geo. mean) | vs llmastar_standard: win / tie / loss |
 |---|---|---|---|
@@ -11,7 +11,6 @@ Operations of each LLM run against wastar-w2 (= 100) and against llmastar_standa
 | quorumastar-k0 | 74 / 861 / 65 | 100.5 | 664 / 123 / 213 |
 | quorumastar-novision | 249 / 508 / 243 | 98.9 | 681 / 86 / 233 |
 | quorumastar-rm0 | 257 / 487 / 256 | 99.2 | 679 / 85 / 236 |
-| quorumastar-vtext-fspaper-nosnap-add1-novision-k0 | 6 / 1 / 3 | 129.2 | 0 / 10 / 0 |
 
 ## quorumastar: what reached the search (ops vs wastar-w2 = 100)
 
@@ -40,11 +39,10 @@ Operations of each LLM run against wastar-w2 (= 100) and against llmastar_standa
 
 | run | LLM requests | prompt tokens | completion tokens | $ per query | $ per 1,000 queries | source |
 |---|---|---|---|---|---|---|
-| llmastar_cot | - | - | - | - | - | no raw log here |
-| llmastar_repe | - | - | - | - | - | no raw log here |
-| llmastar_standard | - | - | - | - | - | no raw log here |
-| quorumastar | - | 32,185 | 50 | 0.00486 | 4.86 | CSV |
-| quorumastar-k0 | - | 32,185 | 50 | 0.00486 | 4.86 | CSV |
-| quorumastar-novision | - | 5,895 | 46 | 0.00091 | 0.91 | CSV |
-| quorumastar-rm0 | - | 5,895 | 46 | 0.00091 | 0.91 | CSV |
-| quorumastar-vtext-fspaper-nosnap-add1-novision-k0 | - | 566 | 471 | 0.00037 | 0.37 | CSV |
+| llmastar_cot | 1.00 | 611 | 384 | 0.00032 | 0.32 | raw log |
+| llmastar_repe | 1.00 | 1,163 | 622 | 0.00055 | 0.55 | raw log |
+| llmastar_standard | 1.00 | 585 | 596 | 0.00045 | 0.45 | raw log |
+| quorumastar | 3.71 | 32,185 | 50 | 0.00486 | 4.86 | raw log |
+| quorumastar-k0 | 3.71 | 32,185 | 50 | 0.00486 | 4.86 | raw log |
+| quorumastar-novision | 3.00 | 5,895 | 46 | 0.00091 | 0.91 | raw log |
+| quorumastar-rm0 | 3.00 | 5,895 | 46 | 0.00091 | 0.91 | raw log |
