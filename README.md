@@ -15,8 +15,9 @@ and had to be dropped. Some kept waypoints led the search the wrong way.
 1. Several LLM instances propose waypoints independently. Each one sees the map in a different encoding, for
    example coordinate text, a graph of wall corners, or the walls described in words.
 2. Only the waypoints the instances agree on are kept, and an instance can veto another's waypoints.
-3. A multimodal (vision) model checks the remaining path against an image of the map, and trims or rejects
-   waypoints that don't hold up.
+3. Waypoints whose segments cross a wall, or that too few instances backed, are removed. (A multimodal model that
+   checks the path on an image of the map is available with `--vision`; with GPT-4o mini it did not pay for its cost,
+   so it is off by default.)
 4. A\* searches through the waypoints that survive.
 
 This makes more LLM calls per query than LLM-A\*. The question is whether the better waypoints are worth it: fewer
@@ -66,7 +67,7 @@ back to it when it has no waypoint. Details, ablations and harder maps: [`output
 |---|---|---|---|
 | LLM-A\*, few-shot prompt | 50.52 | 68.38 | 102.95 |
 | Weighted A\* (w = 2) | 34.32 | 56.23 | 102.02 |
-| **Quorum-A\*** | **34.10** | **56.09** | **102.03** |
+| **Quorum-A\*** | **33.95** | **56.08** | **102.00** |
 
 Quorum-A\* does a third fewer operations than LLM-A\* with the same model. Most of that comes from rejecting the
 waypoints that mislead the search (GPT-4o mini's LLM-A\* waypoints cost 1.5× weighted A\*'s operations where they
@@ -93,7 +94,7 @@ result = LLMAStar(llm="gpt", prompt="standard").searching(query=query, filepath=
 print(result["operation"], result["storage"], result["length"], result["valid"])
 ```
 
-Quorum-A\* has the same interface (it makes up to 4 LLM calls per query: 3 views and a vision check):
+Quorum-A\* has the same interface (it makes 3 LLM calls per query, one per view):
 
 ```python
 from llmastar.pather import QuorumAStar

@@ -1,5 +1,5 @@
 """Make Figs. 1-3, the ours-vs-paper comparisons (fig4_vs_paper, fig5_scalability_vs_paper) and the A* / LLM-A* /
-Quorum-A* comparison (fig6_methods) with their default settings.
+Quorum-A* comparison (fig6_methods) with their default settings. fig7_tradeoff needs --out and is not run here.
 
   python -m llmastar.figures [--model llama-3-8b-instruct]
 """

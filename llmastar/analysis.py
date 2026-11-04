@@ -60,6 +60,14 @@ def quorum_groups(run, ref):
     return groups
 
 
+def worst_queries(directory, reference="wastar-w2", n=3, run="quorumastar"):
+    d = Path(directory)
+    ours, ref = _rows(d / f"{run}.csv"), _rows(d / f"{reference}.csv")
+    keys = [k for k in ours if k in ref and ours[k]["valid"] == "1" and ref[k]["valid"] == "1"]
+    keys.sort(key=lambda k: (-float(ours[k]["operation"]) / float(ref[k]["operation"]), int(k[0]), int(k[1])))
+    return [f"{m}:{s}" for m, s in keys[:n]]
+
+
 def raw_cost(path):
     """(requests, prompt tokens, completion tokens) per query from a raw log, or None."""
     if not path.exists():
@@ -155,7 +163,12 @@ def main(argv=None):
     p.add_argument("--price-in", type=float, default=PRICE_IN)
     p.add_argument("--price-out", type=float, default=PRICE_OUT)
     p.add_argument("--worst", type=int, default=10)
+    p.add_argument("--print-worst", type=int, metavar="N",
+                   help="only print the N queries (MAP:SG) where quorumastar does most worse than the reference")
     args = p.parse_args(argv)
+    if args.print_worst:
+        print(" ".join(worst_queries(args.dir, args.reference, args.print_worst)))
+        return
     report(args.dir, args.reference, args.baseline, args.price_in, args.price_out, args.worst)
 
 
