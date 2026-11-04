@@ -37,6 +37,7 @@ llm() {  # llm <out dir> <args...>: run, then rerun while calls failed
     python -m llmastar.run "$@" --out "$out" || return 1
     local bad; bad=$(failed_calls "$out/gpt-4o-mini")
     [ "$bad" = "0" ] && return 0
+    [ "$attempt" = 3 ] && break
     echo "!! $bad queries had a failed call; rerunning (attempt $((attempt + 1)) of 3, cached answers are reused)"
   done
   echo "!! failed calls remain after 3 attempts: check the raw log before using this run"

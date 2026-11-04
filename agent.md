@@ -428,6 +428,11 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-04 (yumin0-0) · `experiments/other-models.sh` on gpt-4.1-mini: done (benchmark 1,000 + hard maps,
+  `outputs/other*/gpt-4.1-mini/`). gpt-4.1-nano: every call returned 404 "model deprecated" (OpenAI shut it down on
+  2026-10-23), so it has no results; its outputs were not committed. The script now makes one test call before any run
+  (a retired model stops there), and the retry message no longer prints "attempt 4 of 3". Replacement candidate:
+  gpt-4.1 (same family, larger).
 - 2026-11-04 (yumin0-0) · `experiments/qwen.sh` (second model, Qwen2.5-VL-7B-Instruct on dgx: `check` on 10 queries for
   the fp16 V100 server, then main 1,000 + hard maps). Quorum-A* is text-only since the judge is off, so no image input
   is needed on V100. Waits for free GPUs.

@@ -4,7 +4,9 @@
 #
 #   read -rsp "OpenAI key: " OPENAI_API_KEY; echo; export OPENAI_API_KEY
 #   bash experiments/other-models.sh gpt-4.1-mini 2>&1 | tee experiments_gpt-4.1-mini.log
-#   bash experiments/other-models.sh gpt-4.1-nano 2>&1 | tee experiments_gpt-4.1-nano.log
+#   bash experiments/other-models.sh gpt-4.1 2>&1 | tee experiments_gpt-4.1.log
+#
+# gpt-4.1-nano was shut down by OpenAI on 2026-10-23 (every call returns 404), so it has no results.
 #
 # Results: outputs/other/<model>/ (benchmark, 1,000 queries) and outputs/other_{dense,large,zigzag}/<model>/.
 set -u
@@ -12,7 +14,19 @@ cd "$(dirname "$0")/.."
 : "${OPENAI_API_KEY:?set OPENAI_API_KEY first (read -rsp ...; export OPENAI_API_KEY)}"
 MODEL="${1:?usage: bash experiments/other-models.sh <model>}"
 unset OPENAI_BASE_URL
-API="--model $MODEL --base-url ${OTHER_URL:-https://api.openai.com/v1} --prompt-set gpt"
+URL="${OTHER_URL:-https://api.openai.com/v1}"
+API="--model $MODEL --base-url $URL --prompt-set gpt"
+# One test call first: a retired or misspelled model fails here instead of on every query.
+python - "$MODEL" "$URL" <<'PY' || exit 1
+import sys
+from openai import OpenAI
+try:
+    OpenAI(base_url=sys.argv[2], max_retries=0).chat.completions.create(
+        model=sys.argv[1], messages=[{"role": "user", "content": "Say OK."}], temperature=0, max_tokens=5)
+except Exception as e:
+    sys.exit(f"!! {sys.argv[1]} did not answer a test call: {e}")
+print(f"{sys.argv[1]} answers; starting")
+PY
 FAST="--workers 16"
 QUORUM="--workers 8"
 case "$MODEL" in  # $ per 1M input / output tokens (OpenAI list prices) for the cost table
@@ -42,6 +56,7 @@ llm() {  # llm <out dir> <args...>: run, then rerun while calls failed (cached a
     python -m llmastar.run "$@" --out "$out" || return 1
     local bad; bad=$(failed_calls "$out/$MODEL")
     [ "$bad" = "0" ] && return 0
+    [ "$attempt" = 3 ] && break
     echo "!! $bad queries had a failed call; rerunning (attempt $((attempt + 1)) of 3, cached answers are reused)"
   done
   echo "!! failed calls remain after 3 attempts: check the raw log before using this run"
