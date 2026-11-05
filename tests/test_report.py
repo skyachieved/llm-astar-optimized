@@ -59,6 +59,10 @@ def test_suffixed_runs_are_found(tmp_path):
     ops = {"astar": OPS["astar"], "wastar-w2": OPS["wastar-w2"], "llmastar_standard-max512": OPS["llmastar_standard"],
            "quorumastar-max512": OPS["quorumastar"]}
     _write(out / "qwen" / "qwen2.5-vl-7b-instruct", ops)
+    (out / "qwen" / "qwen2.5-vl-7b-instruct" / "analysis.md").write_text(
+        ANALYSIS.replace("| quorumastar |", "| quorumastar-max512 |"))
     text = report.build(out)
     assert "| Qwen2.5-VL-7B | Quorum-A* | 31.07 |" in text
     assert "| Qwen2.5-VL-7B | 3 / 0 / 0 | 64.4 |" in text
+    # Local model: tokens without a price (analysis.md applies its default price, which does not apply here).
+    assert "| Qwen2.5-VL-7B | quorumastar-max512 | 3.00 | 5,895 | 46 | - | - |" in text

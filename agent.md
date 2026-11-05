@@ -193,6 +193,9 @@ efficient search, at the cost of more LLM calls.
   (PRs #4, #5; `quorumastar` merged and deleted, so PRs now go to `main`); Qwen2.5-VL-7B (`experiments/qwen.sh all`)
   running on dgx GPUs 6-7. Report tables and figures come from `python -m llmastar.report` and
   `python -m llmastar.figures.fig8_models`; Qwen fills in when its outputs are committed. Next: the report (KC writes it).
+- 2026-11-05: every experiment is done. Claude Opus 5.5 benchmark merged (PR #8); Qwen2.5-VL-7B pilot, benchmark and
+  hard maps finished at 18:17 with no failed call (max_tokens 512, Decisions); vLLM stopped and dgx GPUs 6-7 released.
+  `outputs/report/tables.md` and fig8 now hold every model. Next: the report (KC writes it, due 11/22), then step 9.
 
 ## Next steps
 - [x] 1. Read the repo and REPRODUCTION.md; write agent.md and METHOD.md. *(2026-11-03; layout = METHOD.md §10)*
@@ -236,7 +239,7 @@ efficient search, at the cost of more LLM calls.
       second model. *(2026-11-04: `python -m llmastar.generate_maps` (dense, large, zigzag; 100 each, seed 1, committed
       in `dataset/generated/`); runs in `experiments/gpt-4o-mini.sh hard`.)*
       *(2026-11-04 afternoon: second models gpt-4.1-mini and gpt-4.1 done (`experiments/other-models.sh`);
-      Qwen2.5-VL-7B running.)*
+      Qwen2.5-VL-7B running.)* *(2026-11-05: Qwen2.5-VL-7B done, `outputs/qwen_{dense,large,zigzag}/`.)*
 - [ ] 7. Report support: export what the report needs from `outputs/` only: Table 1 vs. paper; Quorum-A* vs. A*, LLM-A*
       and weighted A* (ops vs. length trade-off with the weighted-A* frontier); ablation bars; failure cases and failed
       experiments, explained; cost table (calls, tokens, seconds per query); reproducibility appendix (models, decoding
@@ -477,11 +480,34 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   significant gain. Cost per 1,000 queries (thinking included): LLM-A* $25.19 (801 + 1,099 tokens), Quorum-A* $54.32
   (3 calls, 7,128 + 1,290 tokens); the 20-query check about $1.6. Hard maps not run (API credit budget). No failed calls.
 
+- 2026-11-05 · Qwen2.5-VL-7B-Instruct (`experiments/qwen.sh all`, dgx, vLLM fp16 on two V100s, temperature 0,
+  max_tokens 512) · pilot 50, benchmark 1,000, hard maps 3 x 100 · `outputs/qwen*/qwen2.5-vl-7b-instruct/`. No failed
+  call in any run. Benchmark ops / storage / length: LLM-A* 38.03 / 59.29 / 102.27, Quorum-A* 35.52 / 57.31 / 102.19,
+  weighted A* 34.32 / 56.23 / 102.02; all off = LLM-A* (0 / 1,000 / 0). Quorum-A* vs LLM-A* 275 / 499 / 226 (ops ratio
+  93.4, p = 0.003 Wilcoxon / 0.032 sign); vs weighted A* 134 / 689 / 177 (103.5, p < 0.001 / 0.017): the one model
+  where Quorum-A* is significantly worse than weighted A*. LLM-A* vs weighted A*: 90 / 721 / 189 (110.8). What reached
+  the search (ops vs weighted A*): no waypoint 588 queries (100.0), waypoints kept 252 (100.1; 88 better / 85 equal /
+  79 worse), stall fallback 160 (123.9; 46 / 16 / 98). Reading: a weak model's waypoints help no more than they hurt
+  even after the vote, and the fallback, which waits k x max(20, distance) pops before dropping them, is what costs.
+  Hard maps (ops; weighted A* 26.90 / 20.10 / 95.42): Quorum-A* 27.72 / 21.14 / 95.42, LLM-A* 38.79 / 31.03 / 95.42;
+  vs weighted A* dense 15 / 63 / 22 (p = 0.53), large 6 / 79 / 15 (p = 0.033), zigzag 10 / 70 / 20 (p = 0.049); on
+  zigzag LLM-A* equals weighted A* on every query. Pilot (50, ops): weighted A* 24.34, LLM-A* 24.24 (also 24.24 with
+  max_tokens 2,048 before the cap), Quorum-A* 23.79, + vision judge 24.60, image instead of relations 25.07, four
+  views + judge 24.61 (image input works on the V100 server). Long answers (from the CSV token counts): 3 of 1,000
+  LLM-A* answers hit the 512 cap; Quorum-A* had >= 512 completion tokens over its 3 views (normal about 130) on 75 of
+  1,000 benchmark queries, 8 / 32 / 0 of 100 on dense / large / zigzag; a cut answer keeps what parses, and a view with
+  nothing parseable abstains. Tokens per query: LLM-A* 724 + 27, Quorum-A* 6,659 + 131 (3 calls); no price (own GPUs).
+
 ## Open questions
 - Q10. `--stall-k` default: 2 (METHOD.md) fired on the Fig. 1 query one pop early. Keep 2 and let the pilot decide, or
   change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-05 (yumin0-0) · Qwen2.5-VL-7B results committed (`outputs/qwen*/`; Results); `llmastar/report.py` shows a
+  model served on our own GPUs without a price (`LOCAL`; its analysis.md applied gpt-4o-mini's default price),
+  `outputs/report/tables.md` and fig8 regenerated with every model; README results table has the Qwen row.
+- 2026-11-05 (yumin0-0) · `experiments/qwen.sh`: max_tokens 512 (run names `-max512`), 1-hour timeout, 10 Quorum
+  workers (Decisions); `report.py` and `fig7_tradeoff --suffix` read the suffixed runs (`tests/test_report.py`).
 - 2026-11-04 (yumin0-0) · `--model-sampling` and `--timeout` in `llmastar/run.py` (client sends only max_tokens;
   default runs and their cache keys unchanged, tested), `experiments/claude.sh` (check / main / hard for Claude Opus
   5.5 on Anthropic's OpenAI-compatible endpoint, key from ANTHROPIC_API_KEY), Claude row in `llmastar/report.py`.

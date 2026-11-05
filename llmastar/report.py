@@ -74,6 +74,7 @@ SKIPPED = {"claude-opus-5-5": "not run (API budget)"}  # map sets a model leaves
 # LLM runs of a model that carry a sampling suffix in their names (the suffix records a setting that differs from the
 # other models; see NOTE_QWEN). Tables look a run up under its plain name first, then with the suffix.
 SUFFIX = {"qwen2.5-vl-7b-instruct": "-max512"}
+LOCAL = {"qwen2.5-vl-7b-instruct"}  # served on our own GPUs: tokens are reported, no price
 NOTE_QWEN = ("Qwen2.5-VL-7B runs with max_tokens 512 (run names end in -max512; every other model 2,048): its normal"
              " answers are short (LLM-A* about 24 tokens, a view under 100), but now and then it repeats itself up to"
              " the limit, and the fp16 V100 server writes such an answer at about 1.4 tokens per second, so 2,048"
@@ -176,13 +177,16 @@ def cost_table(out=OUT):
     for label, model, bench, _, _ in MODELS:
         c = cost_rows(out / bench / model / "analysis.md")
         price = c.pop("price", None)
-        price_note = f"${price[0]} / ${price[1]}" if price else "-"
+        price_note = f"${price[0]} / ${price[1]}" if price and model not in LOCAL else "-"
         if not c:
             body.append([label, NOT_RUN, "", "", "", "", ""])
         for run in ("llmastar_standard", "quorumastar", "quorumastar-vision"):
             name = run if run in c else run + SUFFIX.get(model, "")
             if name in c:
-                body.append([label, name, *c[name], price_note])
+                cells = list(c[name])
+                if model in LOCAL:
+                    cells[3] = "-"
+                body.append([label, name, *cells, price_note])
     return _table(["model", "run", "LLM requests / query", "prompt tokens / query", "completion tokens / query",
                    "$ per 1,000 queries", "price in / out per 1M tokens"], body)
 
