@@ -70,14 +70,25 @@ LLM) is shown because LLM-A\* falls back to it when it has no waypoint.
 
 Quorum-A\* does a third fewer operations than LLM-A\* with the same model. Most of that comes from rejecting the
 waypoints that mislead the search, so on GPT-4o mini it matches weighted A\* rather than beating it. With stronger
-models the same defaults pull ahead of weighted A\* (operations; win / tie / loss against weighted A\* per query,
-paired Wilcoxon p):
+models the same defaults pull ahead of weighted A\*; with an open 7B model they fall slightly behind it (operations;
+win / tie / loss against weighted A\* per query, paired Wilcoxon p):
 
 | Model | LLM-A\* | Quorum-A\* | Quorum-A\* vs weighted A\* (34.32) |
 |---|---|---|---|
 | GPT-4o mini | 50.52 | 33.95 | 249 / 508 / 243, p = 0.6 |
 | GPT-4.1 mini | 42.21 | 33.39 | 274 / 499 / 227, p = 0.012 |
 | GPT-4.1 | 39.90 | 33.53 | 312 / 456 / 232, p < 0.001 |
+| Qwen2.5-VL-7B† | 38.03 | 35.52 | 134 / 689 / 177, p < 0.001 |
+| Claude Opus 5.5\* | 30.75 | 30.04 | 570 / 278 / 152, p < 0.001 |
+
+\*Always thinks before answering and fixes its own sampling, so it runs without temperature 0 (a separate check, not the
+same setting). It is the only model whose LLM-A\* beats weighted A\*, and Quorum-A\* still beats LLM-A\* there
+(306 / 493 / 201 queries, p < 0.001).
+
+†Open model on our own GPUs (vLLM, fp16, two V100s), max_tokens 512 instead of 2,048 (the server writes a runaway
+repetition at about 1.4 tokens/s; normal answers are under 100 tokens). Quorum-A\* still beats LLM-A\* with it
+(275 / 499 / 226, p = 0.003) but loses to weighted A\* (ops ratio 103.5): the waypoints it keeps help on as many
+queries as they hurt (88 / 79), and the stall fallback, which fires on 160 queries, makes 98 of them worse.
 
 Every table of the report (harder maps, cost, ablations, pilot) is in
 [`outputs/report/tables.md`](outputs/report/tables.md), written by `python -m llmastar.report` from the per-query

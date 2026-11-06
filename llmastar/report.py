@@ -70,6 +70,15 @@ PILOT = [  # setting, gpt-4o-mini pilot run, run on a later model
      "quorumastar-vtext+corners+image+relations-vision"),
 ]
 NOT_RUN = "not run yet"
+SKIPPED = {"claude-opus-5-5": "not run (API budget)"}  # map sets a model leaves out on purpose
+# LLM runs of a model that carry a sampling suffix in their names (the suffix records a setting that differs from the
+# other models; see NOTE_QWEN). Tables look a run up under its plain name first, then with the suffix.
+SUFFIX = {"qwen2.5-vl-7b-instruct": "-max512"}
+LOCAL = {"qwen2.5-vl-7b-instruct"}  # served on our own GPUs: tokens are reported, no price
+NOTE_QWEN = ("Qwen2.5-VL-7B runs with max_tokens 512 (run names end in -max512; every other model 2,048): its normal"
+             " answers are short (LLM-A* about 24 tokens, a view under 100), but now and then it repeats itself up to"
+             " the limit, and the fp16 V100 server writes such an answer at about 1.4 tokens per second, so 2,048"
+             " tokens took about 24 minutes. The cap only shortens those repetitions.")
 
 
 def rows(path):
@@ -80,9 +89,16 @@ def rows(path):
         return list(csv.DictReader(f))
 
 
+def resolve(folder, run):
+    """The run's name in this folder: plain, else with the model's suffix (SUFFIX), else plain."""
+    folder = Path(folder)
+    suffixed = run + SUFFIX.get(folder.name, "")
+    return suffixed if not (folder / f"{run}.csv").exists() and (folder / f"{suffixed}.csv").exists() else run
+
+
 def metrics(folder, run):
     """operation / storage / length of a run against A* in the same folder (summary.py's definition), or None."""
-    r, base = rows(Path(folder) / f"{run}.csv"), rows(Path(folder) / "astar.csv")
+    r, base = rows(Path(folder) / f"{resolve(folder, run)}.csv"), rows(Path(folder) / "astar.csv")
     return summarize(r, base) if r and base else None
 
 
@@ -95,7 +111,7 @@ def _cells(m):
 
 
 def _test_cells(folder, run, other):
-    a, b = rows(Path(folder) / f"{run}.csv"), rows(Path(folder) / f"{other}.csv")
+    a, b = rows(Path(folder) / f"{resolve(folder, run)}.csv"), rows(Path(folder) / f"{resolve(folder, other)}.csv")
     if not a or not b:
         return [NOT_RUN] * 3
     c = compare(a, b)
@@ -130,6 +146,9 @@ def hard_table(out=OUT):
         for kind in KINDS:
             folder = out / hard.format(kind=kind) / model
             ops = [metrics(folder, run) for run in ("wastar-w2", "llmastar_standard", "quorumastar")]
+            if not any(ops) and model in SKIPPED:
+                body.append([label, kind, SKIPPED[model], "", "", "", "", "", ""])
+                continue
             body.append([label, kind, *[_num(m["operation"]) if m else NOT_RUN for m in ops],
                          *_test_cells(folder, "quorumastar", "llmastar_standard")[::2],
                          *_test_cells(folder, "quorumastar", "wastar-w2")[::2]])
@@ -158,12 +177,16 @@ def cost_table(out=OUT):
     for label, model, bench, _, _ in MODELS:
         c = cost_rows(out / bench / model / "analysis.md")
         price = c.pop("price", None)
-        price_note = f"${price[0]} / ${price[1]}" if price else "-"
+        price_note = f"${price[0]} / ${price[1]}" if price and model not in LOCAL else "-"
         if not c:
             body.append([label, NOT_RUN, "", "", "", "", ""])
         for run in ("llmastar_standard", "quorumastar", "quorumastar-vision"):
-            if run in c:
-                body.append([label, run, *c[run], price_note])
+            name = run if run in c else run + SUFFIX.get(model, "")
+            if name in c:
+                cells = list(c[name])
+                if model in LOCAL:
+                    cells[3] = "-"
+                body.append([label, name, *cells, price_note])
     return _table(["model", "run", "LLM requests / query", "prompt tokens / query", "completion tokens / query",
                    "$ per 1,000 queries", "price in / out per 1M tokens"], body)
 
@@ -213,6 +236,8 @@ def build(out=OUT):
         *bench,
         "",
         NOTE_SAMPLING,
+        "",
+        NOTE_QWEN,
         "",
         "Quorum-A* against each baseline, query by query:",
         "",
