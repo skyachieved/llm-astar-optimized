@@ -1,7 +1,7 @@
 # Quorum-A*: Multi-View LLM Consensus for Robust Heuristic Search in Path Planning
 
-This repository tests whether **better waypoints make LLM-guided A\* search more efficient**. It is work in
-progress: step 1, reproducing LLM-A\*, is done; the method itself is next.
+This repository tests whether **better waypoints make LLM-guided A\* search more efficient**. Both steps are
+done: step 1 reproduces LLM-A\*, and step 2 builds and measures Quorum-A\* (results below).
 
 It builds on [LLM-A\*](https://arxiv.org/abs/2407.02511) (Meng et al., 2024). The original code is at
 [SilinMeng0510/llm-astar](https://github.com/SilinMeng0510/llm-astar), and this is not the authors' repository.
@@ -10,25 +10,32 @@ toward one waypoint after another, so it expands far fewer states than plain A\*
 wrong, though. In our reproduction, on 25% of the queries every few-shot waypoint lay on a wall or at the map edge
 and had to be dropped. Some kept waypoints led the search the wrong way.
 
-**The idea.** Quorum-A\* picks waypoints in four stages:
+**The idea.** Quorum-A\* picks waypoints in five stages:
 
-1. Several LLM instances propose waypoints independently. Each one sees the map in a different encoding, for
-   example coordinate text, a graph of wall corners, or the walls described in words.
-2. Only the waypoints the instances agree on are kept, and an instance can veto another's waypoints.
-3. Waypoints whose segments cross a wall, or that too few instances backed, are removed. (A multimodal model that
-   checks the path on an image of the map is available with `--vision`; with GPT-4o mini it did not pay for its cost,
-   so it is off by default.)
-4. A\* searches through the waypoints that survive.
+1. **Views.** The same LLM is asked three times, each time with the map written differently: coordinate text
+   (`text`), a graph of the free cells next to wall ends (`corners`), and the walls described in words
+   (`relations`). A view whose request fails or whose answer cannot be parsed abstains.
+2. **Canonicalize.** Each proposed point is moved to the nearest free cell (dropped if none lies within 2 cells),
+   then to the nearest wall-end cell within 3, so that all views vote on the same cells.
+3. **Majority add.** A cell becomes a waypoint only if at least two views propose it.
+4. **Majority remove.** A waypoint is removed if two checks both object: its segments into and out of it both cross
+   a wall, and not every answering view proposed it. (A vision judge that looks at an image of the map can add a
+   third check with `--vision`; with GPT-4o mini it did not pay for its cost, so it is off by default.)
+5. **Search with a stall fallback.** The unchanged LLM-A\* search runs through the surviving waypoints. If it
+   spends more than `k * max(20, Manhattan distance)` pops on one waypoint (k = 2), it drops that waypoint and all
+   later ones and continues toward the goal. With no waypoints, LLM-A\* is exactly weighted A\* with w = 2.
 
-This makes more LLM calls per query than LLM-A\*. The question is whether the better waypoints are worth it: fewer
-A\* operations and less memory, shorter paths, and fewer queries where the LLM's guidance fails.
+This makes three LLM calls per query instead of one. The question is whether the better waypoints are worth it:
+fewer A\* operations and less memory, shorter paths, and fewer queries where the LLM's guidance fails.
 
 - **Step 1, done: reproduce LLM-A\*.** We re-ran the paper's Table 1 and Figs. 1–3 with Llama-3-8B-Instruct,
   served locally by vLLM on one 24 GB GPU. The results are below. [REPRODUCTION.md](REPRODUCTION.md) has the
   details, every choice the paper left open, and why some numbers differ.
-- **Step 2, next: build and measure Quorum-A\*.** The search code never talks to the LLM; it only takes
-  a list of waypoints. The method is a new waypoint generator in `llmastar/waypoints/`, so the search stays the
-  same, and the method shows up as new rows in the results table.
+- **Step 2, done: build and measure Quorum-A\*.** The search code never talks to the LLM; it only takes
+  a list of waypoints. The method is a new waypoint generator in `llmastar/quorumastar/`, plus the stall fallback
+  in `llmastar/pather/quorum_a_star/`, so the LLM-A\* search stays the same. With one text view, LLM-A\*'s prompt
+  and every component switched off, it returns exactly LLM-A\*'s results. The results are below, measured with
+  GPT-4o mini (the course's model) and four other LLMs.
 
 ## Step 1 results: LLM-A\* reproduced
 
@@ -92,7 +99,9 @@ queries as they hurt (88 / 79), and the stall fallback, which fires on 160 queri
 
 Every table of the report (harder maps, cost, ablations, pilot) is in
 [`outputs/report/tables.md`](outputs/report/tables.md), written by `python -m llmastar.report` from the per-query
-CSVs; [`outputs/figures/fig8_models.png`](outputs/figures/fig8_models.png) draws the model comparison.
+CSVs; the 95% confidence intervals and standard deviations are in
+[`outputs/report/ci_tables.md`](outputs/report/ci_tables.md), written by `python -m llmastar.ci_stats`;
+[`outputs/figures/fig8_models.png`](outputs/figures/fig8_models.png) draws the model comparison.
 
 ## Use it on your own maps
 
@@ -259,8 +268,12 @@ endpoint; it thinks before answering and fixes its own sampling, so it runs with
 
 ```bash
 python -m llmastar.report               # outputs/report/tables.md
+python -m llmastar.ci_stats             # outputs/report/ci_tables.md: the report's 95% CIs and SDs
 python -m llmastar.figures.fig8_models  # outputs/figures/fig8_models.png
 ```
+
+`llmastar.report` and `llmastar.ci_stats` read only the committed per-query CSVs, so they need no API key and
+no GPU and give the report's numbers exactly.
 
 ## What's where
 
@@ -268,6 +281,7 @@ python -m llmastar.figures.fig8_models  # outputs/figures/fig8_models.png
 llmastar/run.py        one method over the benchmark -> outputs/<model>/<run>.csv
 llmastar/summary.py    the results table, next to the paper's numbers
 llmastar/report.py     the report's tables across models (paired tests in llmastar/stats.py)
+llmastar/ci_stats.py   the report's 95% confidence intervals and standard deviations
 llmastar/quorumastar/  Quorum-A*'s waypoint step (views, vote, checks)
 experiments/           one script per model: every run of the report
 llmastar/scale.py      the Fig. 3 scalability run
