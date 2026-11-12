@@ -248,6 +248,8 @@ efficient search, at the cost of more LLM calls.
       ablations, pilot, with paired tests); `fig8_models` for the model comparison.)*
 - [ ] 8. Report drafts *(proposed)*: outline per required section, then DRAFT text clearly marked; the user rewrites it.
       Check that every sentence describes what the code does (report–code consistency) and every reference is verified.
+      *(2026-11-06: first full draft `report/quorumastar.tex` + `report/custom.bib` (ACL template; every number has a
+      `% src:` comment; open items marked `\todo`, bib entries not in METHOD.md marked VERIFY). The authors rewrite it.)*
 - [ ] 9. Submission package: zip from a clean checkout; fresh Python 3.11 env with only `requirements.txt`; run the README
       commands exactly as written; confirm the I/O formats match the baseline repo (query dict in, result keys out) and a
       an unseen map file runs unchanged; scan for secrets and `scripts/` references; METHOD.md matches the code; every
@@ -503,6 +505,18 @@ Add `--model qwen2.5-vl-7b-instruct` to use (and write outputs for) the Qwen ser
   change METHOD.md to 3 now?
 
 ## Log
+- 2026-11-08 (Min Ho) · `fig8_models --report` (`outputs/figures/fig8_models_report.{png,pdf}`): the course-report
+  version of the model figure, with only the models run on every map set (Claude stays in the tables), no title line,
+  the legend kept, the baseline named "No waypoints (weighted A*, w = 2)", text 1.45x larger for the page width;
+  default `fig8_models` unchanged; `tests/test_report.py` (144 tests pass).
+- 2026-11-06 (Min Ho) · Report first draft: `report/quorumastar.tex`, `report/custom.bib` (local only: `report/` and
+  the assignment PDFs are git-ignored; the report is written on Overleaf). Structured by the course's report guideline
+  (7 sections, ACL, 5 pages) and the assignment notice's criteria (Table 1 reproduction in the main body, failed
+  experiments, prompts, commands). Numbers re-checked against tables.md and each model's analysis.md; every run CSV
+  has valid = 1 on every query. Cut twice for the 5-page limit (10, then 7 pages without figures): `quorumastar.tex` has no appendix (about 1,900
+  words, 3 tables, 2 figures incl. pseudocode) and is the only version kept. Then added: MedRAG (Xiong et al. 2024,
+  arXiv:2402.13178) as the source of the multi-view idea (Min Ho read MedRAG, not i-MedRAG), a GPT-4o mini column in
+  Table 1, failure case 30:4, "vote, not calls". Only figure for Overleaf: `fig8_models.pdf`.
 - 2026-11-05 (yumin0-0) · Qwen2.5-VL-7B results committed (`outputs/qwen*/`; Results); `llmastar/report.py` shows a
   model served on our own GPUs without a price (`LOCAL`; its analysis.md applied gpt-4o-mini's default price),
   `outputs/report/tables.md` and fig8 regenerated with every model; README results table has the Qwen row.

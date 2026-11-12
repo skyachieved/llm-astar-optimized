@@ -147,3 +147,9 @@ scripts/
 /experiments_*.log
 /outputs/qwen_check/
 /outputs/claude_check/
+
+# Course report (written on Overleaf) and assignment PDFs: local only
+report/
+*Assignment*.pdf
+/Report*.pdf
+/Quorum-A*.docx

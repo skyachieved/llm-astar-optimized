@@ -53,6 +53,19 @@ def test_fig8_marks_models_not_run(tmp_path, monkeypatch):
     assert (tmp_path / "outputs" / "figures" / "fig8_models.png").exists()
 
 
+def test_fig8_report_version_leaves_out_partial_models(tmp_path, monkeypatch):
+    # The course-report version draws only models run on every map set, so no panel says "not run".
+    out = tmp_path / "outputs"
+    _write(out / "gpt" / "gpt-4o-mini", OPS)
+    monkeypatch.chdir(tmp_path)
+    drawn = []
+    monkeypatch.setattr(fig8_models.plt.Axes, "set_yticklabels", lambda self, labels, **kw: drawn.append(labels))
+    fig8_models.main(["--outputs", str(out), "--report"])
+    assert (tmp_path / "outputs" / "figures" / "fig8_models_report.png").exists()
+    assert not (tmp_path / "outputs" / "figures" / "fig8_models.png").exists()
+    assert "Claude Opus 5.5*" not in drawn[0] and "GPT-4o mini" in drawn[0]
+
+
 def test_suffixed_runs_are_found(tmp_path):
     # Qwen's LLM runs carry -max512 in their names; the tables look them up under the plain name.
     out = tmp_path / "outputs"
