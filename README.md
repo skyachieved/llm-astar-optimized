@@ -252,13 +252,21 @@ python -m llmastar.figures
 **3. Quorum-A\* on GPT-4o mini** (the course's model; no GPU needed). One script runs every experiment of the
 report: the four methods on all 1,000 queries, the ablations (first 300 queries), the Table 1 rows on GPT-4o mini,
 and the generalization check on harder generated maps (`dataset/generated/`, made by `python -m
-llmastar.generate_maps`). It reruns any command whose raw log shows a failed call (rate limit, timeout); cached
-answers are reused, so a rerun costs nothing.
+llmastar.generate_maps`). It reruns any command whose raw log shows a failed call (rate limit, timeout); answers
+are cached in `.cache/llm/`, so running it a second time on the same machine costs nothing.
 
 ```bash
 read -rsp "OpenAI key: " OPENAI_API_KEY; echo; export OPENAI_API_KEY   # never written to disk
 bash experiments/gpt-4o-mini.sh all 2>&1 | tee experiments_gpt.log      # or main | free | ablations | table1 | hard
 ```
+
+**What a rerun costs, and why its numbers can differ slightly.** A fresh clone has no cached answers, so the script
+sends every request to the OpenAI API again. Our own runs made 16,774 GPT-4o mini requests (130.5M prompt and
+2.15M completion tokens, about $21 at $0.15 / $0.60 per 1M tokens, pilot runs included) over about 3.5 hours.
+`main` alone (A\*, weighted A\*, LLM-A\* and Quorum-A\* on the 1,000 queries) costs about $1.40. GPT-4o mini is not
+fully deterministic even at temperature 0, so a rerun's answers, and therefore its numbers, can differ slightly from
+ours. The per-query results the report uses are committed in `outputs/`; `python -m llmastar.report` and
+`python -m llmastar.ci_stats` rebuild every table and confidence interval from them exactly, with no API key.
 
 Other models run the same comparison with the same defaults: `experiments/other-models.sh <model>` for other
 OpenAI chat models (gpt-4.1-mini, gpt-4.1; gpt-4.1-nano was retired by OpenAI on 2026-10-23), and
