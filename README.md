@@ -1,335 +1,276 @@
 # Quorum-A*: Multi-View LLM Consensus for Robust Heuristic Search in Path Planning
 
-This repository tests whether **better waypoints make LLM-guided A\* search more efficient**. Both steps are
-done: step 1 reproduces LLM-A\*, and step 2 builds and measures Quorum-A\* (results below).
+This repository reproduces the LLM-A\* rows of Table 1 of [LLM-A\*](https://arxiv.org/abs/2407.02511)
+(Meng et al., 2024) and runs our method, Quorum-A\*. Quorum-A\* asks the same LLM for waypoints three times, each
+time with the map written differently, keeps only the waypoints that at least two answers propose, and drops them
+if the search stalls; the LLM-A\* search itself is unchanged. The code builds on the
+[original LLM-A\* repository](https://github.com/SilinMeng0510/llm-astar) (MIT license, see `LICENSE`).
 
-It builds on [LLM-A\*](https://arxiv.org/abs/2407.02511) (Meng et al., 2024). The original code is at
-[SilinMeng0510/llm-astar](https://github.com/SilinMeng0510/llm-astar), and this is not the authors' repository.
-In LLM-A\*, one LLM reads the map as text and proposes waypoints between the start and the goal. A\* then searches
-toward one waypoint after another, so it expands far fewer states than plain A\*. A single LLM's waypoints are often
-wrong, though. In our reproduction, on 25% of the queries every few-shot waypoint lay on a wall or at the map edge
-and had to be dropped. Some kept waypoints led the search the wrong way.
+Everything except sections 2b and 7 (open models) needs only Ubuntu 22.04, Python 3.11, `requirements.txt` and a
+GPT-4o mini API key, no GPU. Run the sections in order, in one terminal, from the repository folder. The only line
+to edit is the API key in section 1.
 
-**The idea.** Quorum-A\* picks waypoints in five stages:
-
-1. **Views.** The same LLM is asked three times, each time with the map written differently: coordinate text
-   (`text`), a graph of the free cells next to wall ends (`corners`), and the walls described in words
-   (`relations`). A view whose request fails or whose answer cannot be parsed abstains.
-2. **Canonicalize.** Each proposed point is moved to the nearest free cell (dropped if none lies within 2 cells),
-   then to the nearest wall-end cell within 3, so that all views vote on the same cells.
-3. **Majority add.** A cell becomes a waypoint only if at least two views propose it.
-4. **Majority remove.** A waypoint is removed if two checks both object: its segments into and out of it both cross
-   a wall, and not every answering view proposed it. (A vision judge that looks at an image of the map can add a
-   third check with `--vision`; with GPT-4o mini it did not pay for its cost, so it is off by default.)
-5. **Search with a stall fallback.** The unchanged LLM-A\* search runs through the surviving waypoints. If it
-   spends more than `k * max(20, Manhattan distance)` pops on one waypoint (k = 2), it drops that waypoint and all
-   later ones and continues toward the goal. With no waypoints, LLM-A\* is exactly weighted A\* with w = 2.
-
-This makes three LLM calls per query instead of one. The question is whether the better waypoints are worth it:
-fewer A\* operations and less memory, shorter paths, and fewer queries where the LLM's guidance fails.
-
-- **Step 1, done: reproduce LLM-A\*.** We re-ran the paper's Table 1 and Figs. 1–3 with Llama-3-8B-Instruct,
-  served locally by vLLM on one 24 GB GPU. The results are below. [REPRODUCTION.md](REPRODUCTION.md) has the
-  details, every choice the paper left open, and why some numbers differ.
-- **Step 2, done: build and measure Quorum-A\*.** The search code never talks to the LLM; it only takes
-  a list of waypoints. The method is a new waypoint generator in `llmastar/quorumastar/`, plus the stall fallback
-  in `llmastar/pather/quorum_a_star/`, so the LLM-A\* search stays the same. With one text view, LLM-A\*'s prompt
-  and every component switched off, it returns exactly LLM-A\*'s results. The results are below, measured with
-  GPT-4o mini (the course's model) and four other LLMs.
-
-## Step 1 results: LLM-A\* reproduced
-
-All 1,000 benchmark queries (100 maps × 10 start/goal pairs). Each value is relative to A\* (A\* = 100) and shown
-as **ours / paper**. Lower is better for operations (states expanded) and storage (states kept in memory); a path
-length of 100 means as short as A\*'s optimal path.
-
-| Method | Operations | Storage | Path length |
-|---|---|---|---|
-| A\* | 100 / 100 | 100 / 100 | 100 / 100 |
-| Dynamic WA\* | 59.49 / 60.91 | 78.65 / 78.53 | 100.25 / 100.24 |
-| LLM-A\*, few-shot prompt | 42.99 / 44.59 | 62.83 / 64.02 | 102.27 / 102.47 |
-| LLM-A\*, CoT prompt | 49.63 / 47.60 | 68.06 / 66.27 | 102.45 / 102.46 |
-| LLM-A\*, RePE prompt | 69.70 / 64.08 | 84.31 / 80.19 | 102.42 / 102.54 |
-
-With the few-shot prompt, LLM-A\* does 43% of A\*'s work and keeps 63% of its states, for paths 2.3% longer on
-average. Every method above finds a valid path on all 1,000 queries. Letting the LLM draw the whole path itself
-(LLM-only) gives a valid path only about 10% of the time (paper: 12–16%).
-
-<p align="center">
-  <img src="outputs/figures/fig1_search_llama-3-8b-instruct.png" width="400" alt="Fig. 1: A* and LLM-A* on map 1, query 0">
-  <img src="outputs/figures/fig3_scalability_llama-3-8b-instruct.png" width="360" alt="Fig. 3: growth of operations and storage with map scale">
-</p>
-
-Left (Fig. 1): A\* and LLM-A\* on the paper's example query. Both of Llama's waypoints here lie on a wall, so LLM-A\*
-drops them (hollow stars), and it still needs only 183 operations against A\*'s 859. Right (Fig. 3): on maps enlarged up to
-10×, A\*'s work grows 108× and LLM-A\*'s 73×. All figures are in [`outputs/figures/`](outputs/figures/).
-
-## Quorum-A\* results
-
-All 1,000 benchmark queries, relative to A\* (= 100); GPT-4o mini is the course's model. Weighted A\* (w = 2, no
-LLM) is shown because LLM-A\* falls back to it when it has no waypoint.
-
-| Method (GPT-4o mini) | Operations | Storage | Path length |
-|---|---|---|---|
-| LLM-A\*, few-shot prompt | 50.52 | 68.38 | 102.95 |
-| Weighted A\* (w = 2) | 34.32 | 56.23 | 102.02 |
-| **Quorum-A\*** | **33.95** | **56.08** | **102.00** |
-
-Quorum-A\* does a third fewer operations than LLM-A\* with the same model. Most of that comes from rejecting the
-waypoints that mislead the search, so on GPT-4o mini it matches weighted A\* rather than beating it. With stronger
-models the same defaults pull ahead of weighted A\*; with an open 7B model they fall slightly behind it (operations;
-win / tie / loss against weighted A\* per query, paired Wilcoxon p):
-
-| Model | LLM-A\* | Quorum-A\* | Quorum-A\* vs weighted A\* (34.32) |
-|---|---|---|---|
-| GPT-4o mini | 50.52 | 33.95 | 249 / 508 / 243, p = 0.6 |
-| GPT-4.1 mini | 42.21 | 33.39 | 274 / 499 / 227, p = 0.012 |
-| GPT-4.1 | 39.90 | 33.53 | 312 / 456 / 232, p < 0.001 |
-| Qwen2.5-VL-7B† | 38.03 | 35.52 | 134 / 689 / 177, p < 0.001 |
-| Claude Opus 5.5\* | 30.75 | 30.04 | 570 / 278 / 152, p < 0.001 |
-
-\*Always thinks before answering and fixes its own sampling, so it runs without temperature 0 (a separate check, not the
-same setting). It is the only model whose LLM-A\* beats weighted A\*, and Quorum-A\* still beats LLM-A\* there
-(306 / 493 / 201 queries, p < 0.001).
-
-†Open model on our own GPUs (vLLM, fp16, two V100s), max_tokens 512 instead of 2,048 (the server writes a runaway
-repetition at about 1.4 tokens/s; normal answers are under 100 tokens). Quorum-A\* still beats LLM-A\* with it
-(275 / 499 / 226, p = 0.003) but loses to weighted A\* (ops ratio 103.5): the waypoints it keeps help on as many
-queries as they hurt (88 / 79), and the stall fallback, which fires on 160 queries, makes 98 of them worse.
-
-Every table of the report (harder maps, cost, ablations, pilot) is in
-[`outputs/report/tables.md`](outputs/report/tables.md), written by `python -m llmastar.report` from the per-query
-CSVs; the 95% confidence intervals and standard deviations are in
-[`outputs/report/ci_tables.md`](outputs/report/ci_tables.md), written by `python -m llmastar.ci_stats`;
-[`outputs/figures/fig8_models.png`](outputs/figures/fig8_models.png) draws the model comparison.
-
-## Use it on your own maps
-
-Needs Python 3.11 and `pip install -r requirements.txt`, nothing else (no GPU, no torch). The default model is
-GPT-4o mini; any OpenAI-compatible endpoint (a local vLLM server, another provider) works by changing the model and
-the base URL.
-
-**API key.** Set `OPENAI_API_KEY`, or `openai.api_key` in Python, or pass `--api-key`. The key is never written to
-the cache, the logs or the outputs.
-
-**One query from Python** (the original repository's interface):
-
-```python
-from llmastar.pather import LLMAStar
-
-query = {"start": [5, 5], "goal": [27, 15], "range_x": [0, 51], "range_y": [0, 31],
-         "horizontal_barriers": [[10, 0, 25], [15, 30, 50]],   # [y, x_start, x_end]
-         "vertical_barriers": [[25, 10, 22]]}                  # [x, y_start, y_end]
-result = LLMAStar(llm="gpt", prompt="standard").searching(query=query, filepath="search.png")
-print(result["operation"], result["storage"], result["length"], result["valid"])
-```
-
-Quorum-A\* has the same interface (it makes 3 LLM calls per query, one per view):
-
-```python
-from llmastar.pather import QuorumAStar
-result = QuorumAStar(llm="gpt").searching(query=query, filepath="search.png")   # same result keys + "fallback"
-```
-
-`llm="gpt"` is GPT-4o mini with the paper's GPT prompts (`prompt` is `standard`, `cot` or `repe`). The result has
-`operation` (states expanded), `storage` (states stored), `length` (path length), `valid`, `path`, `visited` and
-`llm_output` (the start, the waypoints kept and the goal). `filepath` is optional and saves a plot.
-
-**A whole map file from the command line.** `--dataset` takes the benchmark format
-(`dataset/environment_50_30.json`: a list of maps, each with `id`, `range_x`, `range_y`, the two barrier lists and
-`start_goal` pairs), a single map, a single query as above, or a list of queries.
+## 1. Setup
 
 ```bash
-export OPENAI_API_KEY=sk-...
-python -m llmastar.run --method astar    --dataset my_maps.json --model gpt-4o-mini
-python -m llmastar.run --method llmastar --dataset my_maps.json --model gpt-4o-mini \
-  --base-url https://api.openai.com/v1 --prompt-set gpt --prompt standard
-python -m llmastar.run --method quorumastar --dataset my_maps.json --model gpt-4o-mini \
-  --base-url https://api.openai.com/v1
+conda create -n quorumastar python=3.11 -y
+conda activate quorumastar
+pip install -r requirements.txt
+pytest -q
+export OPENAI_API_KEY="paste-your-openai-key-here"
 ```
 
-Each run writes `outputs/<model>/<run>.csv` with one row per query: `map_id, sg_idx, start, goal, method, prompt,
-model, operation, storage, length, valid, valid_lenient, parse_ok, n_waypoints, n_targets, seconds, error,
-llm_error`. A failed LLM call never stops a run: that query runs without waypoints (as LLM-A\* does when it gets
-none), `llm_error` says why, and the run prints how many failed. Failures are not cached, so running the same
-command again retries only them. Calls time out after 60 s and are retried up to 3 times on rate limits, timeouts
-and server errors.
+- All tests pass without an API key or network. One of them checks that A\* on the paper's Fig. 1 query gives 859
+  operations, 802 storage and path length 53.46, as in the paper.
+- Every LLM run uses GPT-4o mini through the OpenAI API. The key is never written to the cache, the logs or the
+  outputs; `openai.api_key` in Python also works, as in the original repository.
+- Every LLM answer is cached in `.cache/llm/` (empty in a fresh copy), so running a command again sends only the
+  requests that failed.
 
-**Table 1 in one command** (all rows, then `outputs/<model>/summary.md`):
+## 2. Table 1 reproduction
+
+### 2a. GPT-4o mini (no GPU)
 
 ```bash
 python -m llmastar.table1 --model gpt-4o-mini --base-url https://api.openai.com/v1 --prompt-set gpt
-python -m llmastar.table1 --limit 50     # a quick pilot on the first 50 queries, local vLLM server
 ```
 
-`--stop-newline --max-tokens 100` reproduces the original repository's sampling (`stop="\n"`, 100 tokens); it
-cuts multi-line CoT and RePE answers, so the defaults are no stop and 2,048 tokens (REPRODUCTION.md).
+This runs A\*, Dynamic WA\*, and LLM-A\* and LLM-only with the paper's three prompts on all 1,000 benchmark
+queries (100 maps × 10 start/goal pairs), prints the table and writes `outputs/gpt-4o-mini/summary.md`.
+Expected, relative to A\* (= 100; lower is better), from our run (`outputs/gpt/gpt-4o-mini/summary.md`, report
+Table 1):
 
-## Setup
+| LLM-A\* prompt (row) | Operations [95% CI] | Storage | Path length |
+|---|---|---|---|
+| few-shot (`llmastar_standard`) | 50.52 [47.84, 53.35] | 68.38 | 102.95 |
+| CoT (`llmastar_cot`) | 48.53 [46.06, 51.14] | 67.07 | 102.73 |
+| RePE (`llmastar_repe`) | 50.84 [48.16, 53.68] | 68.97 | 102.51 |
 
-You need Linux, conda, and an NVIDIA GPU with at least 24 GB of memory. The GPU is only for the LLM runs; A\* and
-Dynamic WA\* run on the CPU. You also need a Hugging Face account that has accepted the Llama 3 license on the
-[model page](https://huggingface.co/meta-llama/Meta-Llama-3-8B-Instruct).
+- Every path is valid. A\* and Dynamic WA\* (`dwastar`, 59.49 / 78.65 / 100.25) use no LLM and match exactly.
+  The `paper_*` columns of the printed table are the paper's Llama 3 rows.
+- GPT-4o mini is not fully deterministic even at temperature 0, so the LLM-A\* rows of a rerun can differ slightly
+  from ours.
+- We send no stop sequence and allow 2,048 output tokens. The original repository's `stop="\n"` with 100 tokens cuts
+  every GPT-4o mini answer before its waypoints (report, Section 4); `--stop-newline --max-tokens 100` restores it.
 
-There are two conda envs: `vllm` serves the model and `llmastar` runs the experiments.
+### 2b. Llama-3-8B-Instruct, the paper's model (GPU)
+
+The report's Table 1 uses the paper's model, Llama-3-8B-Instruct, served by vLLM in bf16 on one 24 GB GPU (RTX
+A5000). This needs an NVIDIA GPU with at least 24 GB and a Hugging Face account that has accepted the Llama 3
+license on the [model page](https://huggingface.co/meta-llama/Meta-Llama-3-8B-Instruct). vLLM runs in its own
+conda env (also used by Qwen in section 7; the model download is about 16 GB):
 
 ```bash
-git clone https://github.com/skyachieved/llm-astar-optimized.git
-cd llm-astar-optimized
-
-# experiments (no torch needed)
-conda create -n llmastar python=3.11 -y
-conda activate llmastar
-pip install -r requirements.txt
-pytest -q
-
-# model server
 conda create -n vllm python=3.11 -y
 conda activate vllm
-pip install "vllm==0.11.0" "transformers>=4.56,<5"
+pip install "vllm==0.11.0" "transformers>=4.56,<5"   # vLLM 0.11.0 does not start with transformers 5
 hf auth login
 hf download meta-llama/Meta-Llama-3-8B-Instruct --local-dir ~/models/Meta-Llama-3-8B-Instruct --exclude "original/*"
-```
-
-- `pytest -q` checks that A\* on the paper's Fig. 1 query gives 859 operations, 802 storage and length 53.46.
-- `hf auth login` asks for a Hugging Face access token with read permission.
-- transformers stays below 5 because vLLM 0.11.0 does not start with transformers 5.
-- The model download is about 16 GB.
-
-## Run the experiments
-
-**1. Start the model server** in its own terminal (or tmux window) and leave it running. It is ready when it
-prints `Application startup complete`.
-
-```bash
-conda activate vllm
 CUDA_VISIBLE_DEVICES=0 vllm serve ~/models/Meta-Llama-3-8B-Instruct \
   --served-model-name llama-3-8b-instruct --host 127.0.0.1 --port 8000 \
   --dtype bfloat16 --max-model-len 8192 --gpu-memory-utilization 0.90 \
   --generation-config vllm --seed 0
 ```
 
-- `CUDA_VISIBLE_DEVICES=0` picks the GPU. On a machine with different GPU models, put `CUDA_DEVICE_ORDER=PCI_BUS_ID`
-  in front of it so the number matches `nvidia-smi`.
-- `--generation-config vllm` makes vLLM ignore the model's default sampling settings. The client always sends
-  temperature 0.
-
-**2. Run everything** in a second terminal, from the repository folder:
+When it prints `Application startup complete`, in a second terminal:
 
 ```bash
-conda activate llmastar
-export OPENAI_API_KEY=dummy
-
-# baselines (CPU only)
-python -m llmastar.run --method astar --jobs 8
-python -m llmastar.run --method dwastar --jobs 8
-
-# LLM-A* and LLM-only with the paper's three prompts
-for p in standard cot repe; do
-  python -m llmastar.run --method llmastar --prompt $p --jobs 8 --workers 32
-  python -m llmastar.run --method llm_only --prompt $p --jobs 8 --workers 32
-done
-
-# Fig. 3 data: 10 sampled queries on maps enlarged 1x to 10x
-python -m llmastar.scale --jobs 8
-
-# the table and the figures
-python -m llmastar.summary
+conda activate quorumastar
+OPENAI_API_KEY=dummy python -m llmastar.table1 --jobs 8 --workers 32
+OPENAI_API_KEY=dummy python -m llmastar.scale --jobs 8   # Fig. 3 data
 python -m llmastar.figures
 ```
 
-- `OPENAI_API_KEY` must be set, but vLLM accepts any value.
-- `--jobs` is the number of CPU worker processes; lower it on a small machine. `--workers` is the number of
-  concurrent LLM requests.
-- On one RTX A5000, the 3,000 LLM calls took about 8 minutes, and the Fig. 3 searches about 2.5 minutes.
-- `python -m llmastar.summary` prints the table and writes `outputs/llama-3-8b-instruct/summary.md`.
-  `python -m llmastar.figures` writes the figures to `outputs/figures/`.
-- Every LLM answer is cached in `.cache/llm/`, so running a command again sends no new requests. The `llm_only` runs
-  reuse the answers from the `llmastar` runs.
-- To try a quick pilot first, add `--limit 50` to the LLM runs (the first 50 queries).
-- These commands overwrite the results committed in `outputs/`; `git checkout outputs` brings them back.
+The LLM calls took about 8 minutes on the A5000. Results go to `outputs/llama-3-8b-instruct/` and replace the
+committed ones (copy that folder first to keep them). Ours / paper, A\* = 100:
 
-**3. Quorum-A\* on GPT-4o mini** (the course's model; no GPU needed). One script runs every experiment of the
-report: the four methods on all 1,000 queries, the ablations (first 300 queries), the Table 1 rows on GPT-4o mini,
-and the generalization check on harder generated maps (`dataset/generated/`, made by `python -m
-llmastar.generate_maps`). It reruns any command whose raw log shows a failed call (rate limit, timeout); answers
-are cached in `.cache/llm/`, so running it a second time on the same machine costs nothing.
+| LLM-A\* prompt | Operations | Storage | Path length |
+|---|---|---|---|
+| few-shot | 42.99 / 44.59 | 62.83 / 64.02 | 102.27 / 102.47 |
+| CoT | 49.63 / 47.60 | 68.06 / 66.27 | 102.45 / 102.46 |
+| RePE | 69.70 / 64.08 | 84.31 / 80.19 | 102.42 / 102.54 |
+
+[REPRODUCTION.md](REPRODUCTION.md) explains every setting the paper left open and why some numbers differ.
+
+## 3. Quorum-A\* on GPT-4o mini
 
 ```bash
-read -rsp "OpenAI key: " OPENAI_API_KEY; echo; export OPENAI_API_KEY   # never written to disk
-bash experiments/gpt-4o-mini.sh all 2>&1 | tee experiments_gpt.log      # or main | free | ablations | table1 | hard
+bash experiments/gpt-4o-mini.sh main
+python -m llmastar.report
+python -m llmastar.ci_stats
 ```
 
-**What a rerun costs, and why its numbers can differ slightly.** A fresh clone has no cached answers, so the script
-sends every request to the OpenAI API again. Our own runs made 16,774 GPT-4o mini requests (130.5M prompt and
-2.15M completion tokens, about $21 at $0.15 / $0.60 per 1M tokens, pilot runs included) over about 3.5 hours.
-`main` alone (A\*, weighted A\*, LLM-A\* and Quorum-A\* on the 1,000 queries) costs about $1.40. GPT-4o mini is not
-fully deterministic even at temperature 0, so a rerun's answers, and therefore its numbers, can differ slightly from
-ours. The per-query results the report uses are committed in `outputs/`; `python -m llmastar.report` and
-`python -m llmastar.ci_stats` rebuild every table and confidence interval from them exactly, with no API key.
+The script runs A\*, weighted A\* (w = 2), LLM-A\* (few-shot; it reuses the answers of section 2a) and Quorum-A\*
+(3 requests per query) on the 1,000 queries. It also checks that Quorum-A\* with every component switched off gives
+exactly LLM-A\*'s results. It writes `outputs/gpt/gpt-4o-mini/` and prints the table; the last two commands
+recompute the report's tables and tests from your rerun. Expected (A\* = 100; report Table 2):
 
-Other models run the same comparison with the same defaults: `experiments/other-models.sh <model>` for other
-OpenAI chat models (gpt-4.1-mini, gpt-4.1; gpt-4.1-nano was retired by OpenAI on 2026-10-23), and
-`experiments/qwen.sh` for an open model (Qwen2.5-VL-7B-Instruct on a local vLLM server; its header has the server
-command), and `experiments/claude.sh` for Claude Opus 5.5 (Anthropic's OpenAI-compatible
-endpoint; it thinks before answering and fixes its own sampling, so it runs with `--model-sampling`). Then the report's tables and the model figure:
+| Method (row) | Operations [95% CI] | Storage | Path length |
+|---|---|---|---|
+| Weighted A\* (w = 2), no LLM (`wastar-w2`) | 34.32 [32.74, 35.97] | 56.23 | 102.02 |
+| LLM-A\* (`llmastar_standard`) | 50.52 [47.84, 53.35] | 68.38 | 102.95 |
+| **Quorum-A\*** (`quorumastar`) | **33.95 [32.36, 35.61]** | **56.08** | **102.00** |
+| Quorum-A\*, all components off (`quorumastar-vtext-fspaper-nosnap-add1-k0`) | same as LLM-A\* | | |
+
+- Weighted A\* (w = 2) is LLM-A\* without waypoints and matches exactly.
+- The script reruns any command whose log shows a failed call (rate limit, timeout). If it prints
+  `!! failed calls remain`, run it again.
+- `bash experiments/gpt-4o-mini.sh all` runs sections 3, 4 and 6 and the Table 1 variants in one go.
+- Before any rerun, `python -m llmastar.report` and `python -m llmastar.ci_stats` alone rebuild the report's
+  tables, confidence intervals and standard deviations exactly from our committed per-query results, with no API
+  key (report, Section 4, "Reproducibility"). This section's run replaces our GPT-4o mini results with yours.
+
+## 4. Ablations (GPT-4o mini)
+
+Each component of Quorum-A\* removed one at a time.
 
 ```bash
-python -m llmastar.report               # outputs/report/tables.md
-python -m llmastar.ci_stats             # outputs/report/ci_tables.md: the report's 95% CIs and SDs
-python -m llmastar.figures.fig8_models  # outputs/figures/fig8_models.png
+bash experiments/gpt-4o-mini.sh free        # all 1,000 queries
+bash experiments/gpt-4o-mini.sh ablations   # first 300 queries
+python -m llmastar.report
+python -m llmastar.ci_stats
 ```
 
-`llmastar.report` and `llmastar.ci_stats` read only the committed per-query CSVs, so they need no API key and
-no GPU and give the report's numbers exactly.
+Expected operations (A\* = 100), each against the default with a paired Wilcoxon test (report, Section 5.4):
 
-## What's where
+| Queries | Variant | Operations | p |
+|---|---|---|---|
+| 1,000 | default | 33.95 | |
+| 1,000 | no stall fallback | 35.32 | < 0.001 |
+| 1,000 | no removal step | 34.05 | 0.13 |
+| 1,000 | + vision judge | 34.10 | 0.54 |
+| 300 | default | 33.18 | |
+| 300 | the three answers without a vote (union) | 41.61 | < 0.001 |
+| 300 | text view alone / corners alone / relations alone | 36.34 / 37.41 / 36.54 | < 0.001 / 0.015 / 0.0036 |
+| 300 | no few-shot examples | 35.96 | 0.0012 |
+| 300 | LLM-A\* / weighted A\* (w = 2), for reference | 48.31 / 33.19 | |
 
-```
-llmastar/run.py        one method over the benchmark -> outputs/<model>/<run>.csv
-llmastar/summary.py    the results table, next to the paper's numbers
-llmastar/report.py     the report's tables across models (paired tests in llmastar/stats.py)
-llmastar/ci_stats.py   the report's 95% confidence intervals and standard deviations
-llmastar/quorumastar/  Quorum-A*'s waypoint step (views, vote, checks)
-experiments/           one script per model: every run of the report
-llmastar/scale.py      the Fig. 3 scalability run
-llmastar/figures/      Figs. 1-8, built from outputs/ only
-llmastar/pather/       A*, Dynamic WA*, LLM-A* (search only, no LLM code)
-llmastar/waypoints/    waypoint generators: the paper's prompts; new methods register here
-llmastar/model/        OpenAI-compatible chat client with an on-disk response cache
-dataset/               the benchmark: 100 maps x 10 start/goal pairs
-outputs/               our results: per-query CSVs, summary.md, search traces, figures
-tests/                 unit tests (pytest)
-REPRODUCTION.md        what we changed in the original code and why, deviations from the paper, why numbers differ
-```
+`outputs/report/tables.md` (section 4) lists every variant (unanimity, image view, four views, no snapping, shared few-shot
+examples, CoT, roles), none of which differs significantly from the default.
 
-## Inspirations
+## 5. Your own maps
 
-Quorum-A\* combines ideas from these papers. Putting these views together as voters for waypoints is our contribution,
-and it is a hypothesis that our pilot experiments test, not a result.
+Nothing in the method depends on a particular map: the grid size and the walls come from the input.
 
-- **MedRAG** (Xiong, Jin, Lu, Zhang, *Benchmarking Retrieval-Augmented Generation for Medicine*, Findings of ACL 2024,
-  [arXiv:2402.13178](https://arxiv.org/abs/2402.13178)): several retrievers are fused by reciprocal rank fusion. This is
-  the analogue of our several views.
-- **Talk like a Graph** (Fatemi, Halcrow, Perozzi, ICLR 2024, [arXiv:2310.04560](https://arxiv.org/abs/2310.04560)): how a
-  graph is written as text changes LLM answers; the incident encoding did best for most prompting methods. Our corner
-  view uses it.
-- **Do LLMs Build Spatial World Models?** (Li, Zhu, Das, Dube, 2026,
-  [arXiv:2604.10690](https://arxiv.org/abs/2604.10690), preprint): adjacency lists beat grid layouts on mazes.
-- **Self-consistency** (Wang et al., ICLR 2023), **MMP-A\*** (Ha et al., 2026,
-  [arXiv:2601.01910](https://arxiv.org/abs/2601.01910)) and **weighted A\*** (Pohl, 1970): see METHOD.md for how each is used.
+**From Python**, with the input and output format of the original repository. This is its Quick Start, plus one
+line for Quorum-A\*:
 
-## Credit
-
-LLM-A\* and the benchmark come from the paper below and its [original code](https://github.com/SilinMeng0510/llm-astar).
-
-```
-@article{meng2024llm,
-  title={LLM-A*: Large Language Model Enhanced Incremental Heuristic Search on Path Planning},
-  author={Meng, Silin and Wang, Yiwei and Yang, Cheng-Fu and Peng, Nanyun and Chang, Kai-Wei},
-  journal={arXiv preprint arXiv:2407.02511},
-  year={2024}
-}
+```python
+# import openai; openai.api_key = "YOUR API KEY"   # the original's way; OPENAI_API_KEY from section 1 also works
+from llmastar.pather import AStar, LLMAStar, QuorumAStar
+query = {"start": [5, 5], "goal": [27, 15], "size": [51, 31],
+        "horizontal_barriers": [[10, 0, 25], [15, 30, 50]],   # [y, x_start, x_end]
+        "vertical_barriers": [[25, 10, 22]],                  # [x, y_start, y_end]
+        "range_x": [0, 51], "range_y": [0, 31]}
+astar = AStar().searching(query=query, filepath='astar.png')
+llm = LLMAStar(llm='gpt', prompt='standard').searching(query=query, filepath='llm.png')
+quorum = QuorumAStar(llm='gpt').searching(query=query, filepath='quorum.png')   # our method
+print(quorum["operation"], quorum["storage"], quorum["length"], quorum["valid"])
 ```
 
-MIT license; see `LICENSE`.
+The LLM methods return `operation` (states expanded), `storage` (states stored), `length`, `valid`, `path`,
+`visited` and `llm_output` (start, kept waypoints, goal); Quorum-A\* also returns `fallback`. `filepath` is optional
+and saves a plot.
+
+**From the command line**, for whole map files (A\*, weighted A\* with w = 2, LLM-A\* and Quorum-A\*, with the
+settings of section 3):
+
+```bash
+bash experiments/run_maps.sh path/to/your_maps.json      # one or more files; no argument runs the benchmark
+```
+
+- A map file may hold the benchmark format of `dataset/environment_50_30.json` (a list of maps, each with `id`,
+  `range_x`, `range_y`, `horizontal_barriers`, `vertical_barriers` and `start_goal` pairs), a single map, a single
+  query as above, or a list of queries. The PNG pictures of the maps are not needed.
+- Results for `your_maps.json` go to `outputs/maps/your_maps/gpt-4o-mini/`: one CSV per method with one row per
+  query, and `summary.md` (A\* = 100; its `paper_*` columns refer to the benchmark only).
+- A failed LLM call never stops a run: that query runs without waypoints and the `llm_error` column says why.
+  Calls time out after 60 s and are retried up to 3 times, and the script reruns any failed call.
+- One method on one file: `python -m llmastar.run --method quorumastar --dataset your_maps.json --model
+  gpt-4o-mini --base-url https://api.openai.com/v1 --prompt-set gpt`.
+- Another OpenAI-compatible model: put that provider's key in `OPENAI_API_KEY` and run
+  `LLM_MODEL=<model name> LLM_BASE_URL=<its URL> bash experiments/run_maps.sh your_maps.json` (or pass `--model`
+  and `--base-url` to `llmastar.run`). `experiments/gpt-4o-mini.sh` and `llm="gpt"` always use GPT-4o mini.
+
+## 6. Additional credit: harder maps (GPT-4o mini)
+
+```bash
+bash experiments/gpt-4o-mini.sh hard
+python -m llmastar.report
+```
+
+The maps are committed in `dataset/generated/` (100 each, same format as the benchmark, made by
+`python -m llmastar.generate_maps` with a fixed seed and never used to choose a setting): `dense` (more walls),
+`large` (101 × 61) and `zigzag` (winding corridors). Expected operations (A\* = 100; report Figure 2):
+
+| Maps | Weighted A\* (w = 2) | LLM-A\* | Quorum-A\* |
+|---|---|---|---|
+| dense | 26.90 | 53.84 | 27.01 |
+| large | 20.10 | 48.17 | 20.16 |
+| zigzag | 95.42 | 94.94 | 95.35 |
+
+## 7. Additional credit: other LLMs
+
+Same defaults as GPT-4o mini; nothing is tuned per model. Expected operations (A\* = 100, [95% CI]); weighted A\*
+(w = 2) is 34.32 for every model.
+
+| Model | LLM-A\* | Quorum-A\* | Needs |
+|---|---|---|---|
+| GPT-4.1 mini | 42.21 [40.05, 44.47] | 33.39 [31.85, 35.00] | the OpenAI key |
+| GPT-4.1 | 39.90 [37.92, 41.97] | 33.53 [31.97, 35.16] | the OpenAI key |
+| Qwen2.5-VL-7B (open) | 38.03 [36.17, 39.99] | 35.52 [33.88, 37.24] | GPU |
+| Llama-3-8B-Instruct (open; section 2b) | 42.99 [40.91, 45.19] | not run | GPU |
+| Claude Opus 5.5 (closed) | 30.75 [29.26, 32.31] | 30.04 [28.62, 31.52] | an Anthropic key |
+
+`python -m llmastar.figures.fig8_models --report` draws the report's model figure from the committed results.
+
+**GPT-4.1 mini and GPT-4.1.** Each command runs the benchmark and the harder maps.
+
+```bash
+bash experiments/other-models.sh gpt-4.1-mini
+bash experiments/other-models.sh gpt-4.1
+```
+
+**Qwen2.5-VL-7B-Instruct (open model, GPU).** We served it in fp16 on two 16 GB V100s, in the `vllm` env of
+section 2b (download about 17 GB):
+
+```bash
+conda activate vllm
+hf download Qwen/Qwen2.5-VL-7B-Instruct --local-dir ~/models/Qwen2.5-VL-7B-Instruct
+CUDA_VISIBLE_DEVICES=0,1 vllm serve ~/models/Qwen2.5-VL-7B-Instruct \
+  --served-model-name qwen2.5-vl-7b-instruct --host 127.0.0.1 --port 8012 --dtype float16 \
+  --tensor-parallel-size 2 --max-model-len 16384 --gpu-memory-utilization 0.90 --max-num-seqs 32 \
+  --enforce-eager --limit-mm-per-prompt '{"image": 1}' --generation-config vllm --seed 0
+```
+
+When it prints `Application startup complete`, in a second terminal:
+
+```bash
+conda activate quorumastar
+OPENAI_API_KEY=dummy bash experiments/qwen.sh main     # benchmark; `all` adds the pilot and the harder maps
+```
+
+Results go to `outputs/qwen/qwen2.5-vl-7b-instruct/`; the run names end in `-max512` because Qwen runs with
+max_tokens 512 (report, Section 4). Other GPUs or bf16 change some answers (report, Section 5.1). On one GPU with
+at least 24 GB, `CUDA_VISIBLE_DEVICES=0` without `--tensor-parallel-size 2` should work, but we did not test it.
+
+**Claude Opus 5.5 (closed model).** It needs an Anthropic API key and runs with the model's own sampling (it
+thinks before answering and its API does not accept a temperature), so a rerun's answers differ from ours.
+
+```bash
+export ANTHROPIC_API_KEY="paste-your-anthropic-key-here"
+bash experiments/claude.sh check   # 20 queries: do the answers parse
+bash experiments/claude.sh main    # 1,000 queries
+```
+
+## 8. Where the code is
+
+```
+llmastar/quorumastar/          Quorum-A*'s waypoint step: views, canonicalize, vote, checks
+llmastar/pather/quorum_a_star/ the stall fallback (llmastar/pather/llm_a_star/: LLM-A*'s search, one hook added)
+llmastar/run.py                one method over a map file -> outputs/<model>/<run>.csv
+llmastar/table1.py             Table 1 in one command
+llmastar/report.py, ci_stats.py  the report's tables, CIs and SDs from the committed CSVs
+experiments/                   one script per model (every run of the report); run_maps.sh for any map file
+METHOD.md, REPRODUCTION.md     the method in detail; deviations from the paper
+```

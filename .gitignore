@@ -153,3 +153,7 @@ scripts/
 *Assignment*.pdf
 /Report*.pdf
 /Quorum-A*.docx
+
+# Course instructions (local only, never pushed) and results of experiments/run_maps.sh on your own maps
+/assignment_guidelines/
+/outputs/maps/
