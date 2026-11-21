@@ -1,23 +1,22 @@
 # Changes on `readme-grading-steps` (2026-11-20 to 11-21)
 
-For review before merging into `main`. Four commits: `3e3cb4d`, `2beaa72`, `d48e6e6`, `a492567`. The Python code
-(`llmastar/`) and the commands of the existing experiment scripts are unchanged; what changed is the README,
-REPRODUCTION.md, the header comments of `experiments/qwen.sh`, `.gitignore`, and one new script,
-`experiments/run_maps.sh`. This file is for the review only: leave it out of the zip.
+What we changed for the submission, for review before the merge into `main`. A review note, not part of the
+submission. The search code and the experiments' commands are unchanged: the README was rewritten, one script was
+added, and the rest are documentation, comments and file removals.
 
 **Why.** The TAs grade by following the README in a fresh Ubuntu 22.04 / Python 3.11 environment with only
 `pip install -r requirements.txt`, no GPU and their own GPT-4o mini key, and they run hidden maps through it ("Points
-will be deducted if your results cannot be reproduced by following the README"; Notice, Code Files items 3–5). The old
-README (335 lines) mixed results, method notes and GPU setup; the new one (140 lines) is the grading path, in order.
+will be deducted if your results cannot be reproduced by following the README"; Notice, Code Files items 3–5). The
+report now links this repository, which is public, so the repository is part of what the TAs and peer reviewers see.
 
-## 1. README.md, rewritten
+## 1. README.md, rewritten (335 → 140 lines)
 
 - **Order:** Setup → 1. Check our numbers (no key) → 2. Rerun the experiments (GPT-4o mini) → 3. Run on your own
   maps → 4. More experiments → 5. Runs that need a GPU → Code. Code blocks hold only terminal commands, and the only
   thing a TA edits is the API key.
 - **Section 1 comes first:** `python -m llmastar.report` and `python -m llmastar.ci_stats` rebuild
-  `outputs/report/tables.md` and `ci_tables.md` from the committed CSVs, identical to the committed files. It has to
-  come before section 2, because `table1` and `main` overwrite `outputs/gpt/gpt-4o-mini/`.
+  `outputs/report/tables.md` and `ci_tables.md` from the committed CSVs, identical to the committed files. It comes
+  before section 2 because `table1` and `main` overwrite `outputs/gpt/gpt-4o-mini/`.
 - **Section 2:** `table1`, `main`, `analyze` (Table 3, from the answers `main` cached), then `report` and `ci_stats`.
   Expected table with 95% CIs (= report Tables 1–2). Notes: the no-LLM rows match exactly and the LLM rows can move
   slightly; the all-off row equals LLM-A\*; the `stop="\n"` rows; failed calls rerun automatically; `main` costs
@@ -42,21 +41,42 @@ format, one map, one query or a list of queries. Failed calls are rerun up to 3 
 Results go to `outputs/maps/<file>/<model>/` (git-ignored). `LLM_MODEL` / `LLM_BASE_URL` select another
 OpenAI-compatible model.
 
-## 3. REPRODUCTION.md
+## 3. agent.md and CLAUDE.md removed
 
-- Setup no longer links back to a README section that pointed here (a circular link). It points to README section 5
-  for the Llama-3 Table 1 commands, keeps the Fig. 3 commands (`scale`, `figures`) and adds general commands for
-  Qwen2.5-VL-7B (download, vLLM on two GPUs in fp16, `bash experiments/qwen.sh main`).
-- The environment table calls the experiment env `quorumastar` (was `llmastar`).
+Both were notes for our AI assistant (CLAUDE.md only loaded agent.md), not documentation, and agent.md held personal
+data. They are no longer in the repository the report links, nor in a zip built from it; they stay in the git
+history (`git show 84b97d0:agent.md`). All 21 mentions of agent.md now point to METHOD.md 11 or were dropped:
+comments and docstrings in `llmastar/` and `tests/`, the headers of `experiments/gpt-4o-mini.sh` (also its "step N"
+labels) and `experiments/other-models.sh`, `outputs/pilot/README.md`, and the one sentence `report.py` writes into
+`outputs/report/tables.md` (changed in both, so the rebuilt file stays identical).
 
-## 4. experiments/qwen.sh, header comments only
+## 4. METHOD.md
 
-The serve command in the header used the dgx server's personal paths and GPU numbers; it is now the same general
-command as in REPRODUCTION.md. No code line changed.
+The header no longer refers to agent.md's plan; the rationale table and the vote's tie-break example name the final
+default views (text, corners, relations) instead of the image view; "step N" references are reworded; the
+implementation map lists `pilot.py`; section 11 records the pilot's choice (relations).
 
-## 5. .gitignore
+## 5. REPRODUCTION.md and experiments/qwen.sh
+
+- REPRODUCTION.md, Setup: no longer a circular link to the README. It points to README section 5 for the Llama-3
+  Table 1 commands, keeps the Fig. 3 commands (`scale`, `figures`) and adds general commands for Qwen2.5-VL-7B
+  (download, vLLM on two GPUs in fp16, `bash experiments/qwen.sh main`). The environment table calls the experiment
+  env `quorumastar` (was `llmastar`).
+- `experiments/qwen.sh`: the serve command in the header used the dgx server's personal paths and GPU numbers; it is
+  now the same general command as in REPRODUCTION.md (header comments only).
+
+## 6. .gitignore
 
 `/assignment_guidelines/` (course files, local only) and `/outputs/maps/` (results of `run_maps.sh`).
+
+## 7. Report (report.pdf of 2026-11-21 15:17; the source is in Overleaf)
+
+- Figure 2 is now `outputs/figures/fig8_models_report.png`, the picture the README's command makes (four models,
+  larger text, legend "No waypoints (weighted A\*, w = 2)"); its caption says "Claude, run on the benchmark only, is
+  in Table 2."
+- The abstract links the repository: "All code is available at https://github.com/skyachieved/llm-astar-optimized."
+- Table 1: the Paper header says "(GPT rows: GPT-3.5†)", and the note explains that we use GPT-4o mini, the course's
+  model, where the paper used GPT-3.5.
 
 ## How it was checked
 
@@ -65,49 +85,10 @@ command as in REPRODUCTION.md. No code line changed.
 - **README commands with a free local model** (Ollama `llama3:8b`, first 50 queries; we had no GPT-4o mini key):
   A\*, Dynamic WA\* and weighted A\* are identical query by query to the committed results; Quorum-A\*'s 150 view
   calls all answered; the all-off run equals LLM-A\* on 49 of 50 queries (the other one was an LLM-A\* call that timed
-  out at 60 s on the local GPU, not a code issue); `run_maps.sh` runs end to end. The later commits change text only.
-- **Report** (`report.pdf` of 2026-11-21): every number checked against the committed outputs (`tables.md`,
-  `ci_tables.md`, `summary.md`, `analysis.md`, `outputs/pilot/`) and against the paper's Table 1, GPT-3.5 values
-  included. All match.
-- **Leaks:** no API key in a tracked file (only the fake `sk-secret` in `tests/test_client.py`); no personal data
-  outside `agent.md`.
-
-## Report revisions (Overleaf; the report is not in this repo)
-
-1. **Figure 2:** use `outputs/figures/fig8_models_report.png`, the version the README command makes (larger text,
-   legend "No waypoints (weighted A\*, w = 2)", no empty Claude row). Upload it and use
-   `\includegraphics[width=\textwidth]{fig8_models_report.png}`. In the caption, replace "Claude ran on the
-   benchmark only." with "Claude, run on the benchmark only, is in Table~\ref{tab:main}." (use Table 2's actual
-   label). Check that the report stays at 5 pages.
-2. **Abstract:** replace "and with those four, Quorum-A\*'s gain is close to what dropping every waypoint gives" with
-   "and with the three GPT models, Quorum-A\*'s gain is close to what dropping every waypoint gives". It holds for the
-   GPT models (32 / 19 / 14% against 33 / 21 / 16%) but not for Qwen (9.8% against 6.6%); Section 5.3 already says
-   "For the GPT models".
-3. **Section 4, Reproducibility:** replace "Two commands rebuild every table, CI and SD from our committed results
-   without an API key: python -m llmastar.report and python -m llmastar.ci_stats. The README lists the commands for
-   every rerun." with "Without an API key, python -m llmastar.report and python -m llmastar.ci_stats rebuild our
-   tables, CIs and SDs (outputs/report/) from the committed results; Table 1's LLM-only rows and Table 3 are in each
-   run's summary.md and analysis.md. The README lists the commands for every rerun except the pilot." (keep the
-   `\texttt` formatting). The two commands do not rebuild Table 1's LLM-only rows or Table 3, and the pilot has no
-   rerun command.
-
-## Before submitting
-
-1. Review this branch and merge it into `main` (a pull request leaves a record for the contribution reports).
-2. Build the zip from `main`. `git archive` takes only committed files, so `.git`, `.cache/`,
-   `assignment_guidelines/`, logs and caches stay out. Then delete `agent.md`, `CLAUDE.md` and this `changes.md`
-   from the export (notes for our AI assistant and for this review, with personal data in `agent.md`). From the
-   repository folder:
-
-   ```bash
-   T=TeamName_CodeFile
-   rm -rf ~/submit && mkdir ~/submit
-   git archive --prefix=$T/ main | tar -x -C ~/submit
-   rm ~/submit/$T/agent.md ~/submit/$T/CLAUDE.md ~/submit/$T/changes.md
-   cd ~/submit && python3 -m zipfile -c $T.zip $T/
-   ```
-
-3. Test the zip like a TA: unzip it into a new folder, create a fresh Python 3.11 env, run
-   `pip install -r requirements.txt`, `pytest -q`, then `python -m llmastar.report && python -m llmastar.ci_stats`;
-   `outputs/report/` must come out identical.
-4. Known leftover, harmless: 18 code comments mention `agent.md` (e.g. "agent.md step 7"), which is not in the zip.
+  out at 60 s on the local GPU, not a code issue); `run_maps.sh` runs end to end.
+- **Later commits** change text only: every changed Python file parses, both edited shell scripts pass `bash -n`, and
+  the changed `tables.md` line is exactly the sentence `report.py` now writes.
+- **Report:** every number checked against the committed outputs (`tables.md`, `ci_tables.md`, `summary.md`,
+  `analysis.md`, `outputs/pilot/`) and against the paper's Table 1, GPT-3.5 values included. All match.
+- **Leaks:** no API key in a tracked file (only the fake `sk-secret` in `tests/test_client.py`); with agent.md gone,
+  none of our personal data in the tree (`setup.py` keeps the original author's contact, as in the original code).
