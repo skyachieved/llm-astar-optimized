@@ -81,7 +81,7 @@ class QuorumAStarGenerator:
     def generate(self, query):
         try:
             return self._generate(query)
-        except Exception as error:  # noqa: BLE001 - never stop a run (agent.md hard rule 4)
+        except Exception as error:  # noqa: BLE001 - an LLM failure never stops a run
             return WaypointResult([], False, {"generator": self.name, "llm_error": f"{type(error).__name__}: "
                                                                                     f"{error}"[:500]})
 

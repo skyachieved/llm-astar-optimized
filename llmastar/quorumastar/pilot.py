@@ -1,4 +1,4 @@
-"""The pilot (METHOD.md 11, agent.md step 4), on self-generated maps only; the evaluation maps never choose a default.
+"""The pilot (METHOD.md 11), on self-generated maps only; the evaluation maps never choose a default.
 
   python -m llmastar.quorumastar.pilot make   [--size 50] [--seed 1] [--out dataset/generated/pilot.json]
   python -m llmastar.quorumastar.pilot report --dir outputs/pilot/<model> [--run quorumastar] [--dataset ...]

@@ -1,7 +1,7 @@
 # Pilot runs (50 self-generated maps, gpt-4o-mini)
 
 Inputs: `dataset/generated/pilot.json` (`python -m llmastar.quorumastar.pilot make`). These runs chose the defaults
-(agent.md Decisions, 2026-11-04); the evaluation maps never did.
+(METHOD.md 11; report Section 4); the evaluation maps never did.
 
 Run names list the settings that differ from the default *at the time of the run*. Every run here was made while the
 vision judge was on by default, so a name without `-novision` had the judge:

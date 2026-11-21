@@ -109,7 +109,7 @@ First 300 queries:
 | wastar-w2 | weighted A* (w = 2) | 33.19 | 55.41 | 101.88 |  |  |
 | llmastar_standard | LLM-A* | 48.31 | 67.18 | 102.76 |  |  |
 
-These are evaluation queries: they describe the method and were not used to choose the defaults, which came from the pilot below (agent.md Decisions).
+These are evaluation queries: they describe the method and were not used to choose the defaults, which came from the pilot below (METHOD.md 11).
 
 ## 5. Pilot (50 self-generated maps; where the defaults came from)
 

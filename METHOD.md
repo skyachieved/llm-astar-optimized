@@ -2,8 +2,8 @@
 
 Method specification.
 
-Specification as of 2026-11-03 (views revised after review). Implemented in `llmastar/quorumastar/` (agent.md step 2d); end-to-end runs are step 3. Step 8 checks that this file
-matches the code. Every default below is a CLI flag of `python -m llmastar.run --method quorumastar`.
+Implemented in `llmastar/quorumastar/` (views, canonicalize, vote, checks) and `llmastar/pather/quorum_a_star/` (stall
+fallback). Every default below is a CLI flag of `python -m llmastar.run --method quorumastar`.
 
 ## 1. Setting: what Quorum-A* plugs into
 
@@ -26,7 +26,7 @@ optional search hook (§7). The search loop, f-value and metrics are LLM-A*'s.
 | Weakness diagnosed | Component | Source | Flag |
 |---|---|---|---|
 | One LLM guess can mislead the search | Majority add (≥ 2 of 3) | Self-consistency [4] | `--add-quorum` |
-| Same-model voters share mistakes | One view per voter: text, corners (incident adjacency list), image; candidate: relations | Graph encodings [5]; adjacency lists on mazes [10]; ensemble diversity [6] | `--views` |
+| Same-model voters share mistakes | One view per voter: text, corners (incident adjacency list), relations; image optional | Graph encodings [5]; adjacency lists on mazes [10]; ensemble diversity [6] | `--views` |
 | Single, delete-only vision judge (MMP-A* [7]) | Majority remove (code / vision / support) | MMP-A* [7], extended | `--remove-quorum`, `--no-vision` |
 | Bad plans blow up the worst case | Stall fallback to weighted A* | Weighted A* [3] | `--stall-k` (0 = off) |
 | Float / never-hit waypoints drag the search | Snap + canonicalize to corner nodes | Own diagnosis | `--no-snap` |
@@ -69,7 +69,7 @@ Quorum-A*(query):                                         # query = map + start/
   if len(lists) == 1 and q <= 1: return lists[0]           # identity: order and duplicates kept (needed for §6)
   for each list: drop repeated ids (first occurrence wins); pos(id) = (i + 1) / (n + 1) for the i-th of n ids
   keep ids proposed by >= q lists
-  order by mean pos over the proposing lists; ties: first appearance in view order (text, corners, image)
+  order by mean pos over the proposing lists; ties: first appearance in view order (text, corners, relations)
   support(id) = number of lists proposing id
 ```
 
@@ -114,7 +114,7 @@ the last bracketed list in the text (`parse_waypoints` rule).
 - A view **abstains** if its call errors or its answer has no parsable list. An abstaining view casts no vote.
 - `--cot` (off): each view first gives brief reasoning in a `"reasoning"` field of the same JSON object (so JSON
   mode still applies), then `"waypoints"`. `--roles` (off): each view gets its own
-  system role. Both exist for the ablations in step 5.
+  system role. Both exist for the ablations.
 
 **4.2 Few-shot** (`--fewshot`, default `per-view`; `--n-shots` 3; `--fewshot-seed` 0). Examples come from a pool of
 self-generated maps (`llmastar/quorumastar/fewshot.py`) and never from the evaluation maps. The pool uses the same grid
@@ -190,9 +190,9 @@ for `dwastar` (e.g. `quorumastar-vision`).
   support never objects and vision is off, so the code check alone stays below quorum 2.
 - The search is LLM-A*'s loop with an inert hook.
 
-Tests in step 2 (mock LLM, no network): the messages and the cache key equal `PromptWaypointGenerator`'s, and
-operation, storage, length, path and `llm_output` equal `LLMAStar`'s on a fixed set of queries. Step 3 adds an
-end-to-end check that the run sends 0 new requests and that its CSV metrics equal `llmastar_standard.csv`.
+Tests (mock LLM, no network): the messages and the cache key equal `PromptWaypointGenerator`'s, and operation,
+storage, length, path and `llm_output` equal `LLMAStar`'s on a fixed set of queries. End to end, the all-off run sends
+0 new requests and its CSV metrics equal `llmastar_standard.csv` (`experiments/gpt-4o-mini.sh main`).
 
 ## 7. The search hook
 
@@ -236,7 +236,7 @@ operation, storage and length match `LLMAStar` on a fixed set of maps, and `test
   *(Changed 2026-11-04: Qwen was planned as the main model, but no GPU was free when the runs started; GPT-4o mini
   went first as the course's model.)*
 
-## 10. Implementation map (proposed)
+## 10. Implementation map
 
 ```
 llmastar/quorumastar/
@@ -250,6 +250,7 @@ llmastar/quorumastar/
   canonical.py    snap + canonicalize (§4.3)
   voting.py       majority add (§4.4)
   pruning.py      code / vision / support checks, majority remove (§4.5)
+  pilot.py        pilot maps and the pilot report (§11)
 llmastar/pather/llm_a_star/llm_a_star.py   + no-op _after_pop hook (§7), the only change to the search
 llmastar/pather/quorum_a_star/quorum_a_star.py   QuorumAStar(LLMAStar): stall fallback
 llmastar/model/chatgpt.py                  + api_key, image parts in messages (cache stores an image hash,
@@ -259,7 +260,7 @@ llmastar/run.py                            + --method quorumastar / wastar, Quor
 tests/test_quorumastar_*.py                    mock-LLM unit tests per module + the §6 / §7 equivalence tests
 ```
 
-## 11. Pilot protocol (agent.md step 4)
+## 11. Pilot protocol
 
 Views are compared on **self-generated maps only** (the fewshot pool generator, a seed disjoint from the pool); the
 evaluation maps never choose a view or a default.
@@ -270,8 +271,8 @@ evaluation maps never choose a view or a default.
   where at least one of its waypoints is good.
 - **Independence**: for views a and b, the share of bad waypoints of a whose canonical cell is also proposed by b.
 - **Third-view choice.** Candidates image and relations are scored against the fixed pair text + corners on solo quality
-  and on shared bad waypoints with those two; the better combination is chosen and the numbers recorded in agent.md
-  Decisions.
+  and on shared bad waypoints with those two; the better combination is chosen: relations (numbers in
+  `outputs/pilot/gpt-4o-mini/` and the report, Section 4).
 - **Vision check** catch rate = bad waypoints removed by the vision judge / bad waypoints shown; false-alarm rate =
   good waypoints removed / good waypoints shown.
 

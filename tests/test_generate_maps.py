@@ -1,4 +1,4 @@
-"""Harder generated maps (agent.md step 6): deterministic, in the benchmark format, solvable, straight line blocked."""
+"""Harder generated maps: deterministic, in the benchmark format, solvable, straight line blocked."""
 import json
 
 import pytest

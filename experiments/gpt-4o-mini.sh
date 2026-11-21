@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Every gpt-4o-mini experiment of the report, in one place (agent.md steps 3, 5, 6 and the Table 1 rows).
+# Every gpt-4o-mini experiment of the report, in one place: Table 1 rows, main comparison, ablations, harder maps.
 #
 #   read -rsp "OpenAI key: " OPENAI_API_KEY; echo; export OPENAI_API_KEY
 #   bash experiments/gpt-4o-mini.sh all 2>&1 | tee experiments_gpt.log      # or: main | free | ablations | table1 | hard | analyze
@@ -8,7 +8,7 @@
 # repeats calls that failed. After each LLM run the raw log is checked for failed calls (rate limits, timeouts); if
 # any, the same command runs again (at most 3 times), so no result silently contains an abstention caused by an error.
 # Results (CSVs, summary.md, traces) go to outputs/gpt*/gpt-4o-mini/ and are committed; raw/ logs are not.
-# Defaults are never chosen from these runs: they were fixed on the pilot maps (agent.md Decisions, 2026-11-04).
+# Defaults are never chosen from these runs: they were fixed on the pilot maps (METHOD.md 11).
 set -u
 cd "$(dirname "$0")/.."
 : "${OPENAI_API_KEY:?set OPENAI_API_KEY first (read -rsp ...; export OPENAI_API_KEY)}"
@@ -48,7 +48,7 @@ report() {  # report <out dir>: summary table and the waypoint split vs weighted
   python -c "from llmastar.quorumastar.pilot import split_table; print('\n'.join(split_table('$1/gpt-4o-mini')))"
 }
 
-main() {  # step 3: the four methods on all 1,000 benchmark queries
+main() {  # the four methods on all 1,000 benchmark queries
   local out=outputs/gpt
   python -m llmastar.run --method astar $API --out $out
   python -m llmastar.run --method wastar --weight 2 $API --out $out
@@ -70,7 +70,7 @@ free() {  # ablations that reuse the main run's answers (search only) and the ot
   report $out
 }
 
-ablations() {  # step 5: one change at a time, on the first 300 benchmark queries (maps 0-29)
+ablations() {  # one change at a time, on the first 300 benchmark queries (maps 0-29)
   local out=outputs/gpt_ablation300 lim="--limit 300"
   python -m llmastar.run --method astar $API $lim --out $out
   python -m llmastar.run --method wastar --weight 2 $API $lim --out $out
@@ -99,7 +99,7 @@ table1() {  # Table 1 rows on gpt-4o-mini, as we run them and in the original se
   done
 }
 
-hard() {  # step 6: generalization to harder generated maps (dataset/generated/, never used for defaults)
+hard() {  # generalization to harder generated maps (dataset/generated/, never used for defaults)
   for kind in dense large zigzag; do
     local out=outputs/gpt_$kind data="--dataset dataset/generated/$kind.json"
     python -m llmastar.run --method astar $API $data --out $out
@@ -111,7 +111,7 @@ hard() {  # step 6: generalization to harder generated maps (dataset/generated/,
   done
 }
 
-analyze() {  # step 7: traces for the case studies, then analysis.md (win/tie/loss, failure cases, cost) per directory
+analyze() {  # traces for the case studies, then analysis.md (win/tie/loss, failure cases, cost) per directory
   # The case queries are the 3 queries where Quorum-A* does most worse than weighted A* (from the CSVs).
   # Rerunning with --trace rewrites the same CSVs (cached answers, deterministic search) and adds the traces.
   local out=outputs/gpt

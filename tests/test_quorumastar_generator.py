@@ -32,7 +32,7 @@ def queries():
 
 def test_config_defaults_and_variants():
     assert QuorumConfig().variant() is None
-    assert QuorumConfig().views == ("text", "corners", "relations")  # agent.md Decisions 2026-11-04 (pilot)
+    assert QuorumConfig().views == ("text", "corners", "relations")  # chosen on the pilot (METHOD.md 11)
     assert QuorumConfig(vision=True).variant() == "vision" and not QuorumConfig().vision  # judge off since Q12
     assert QuorumConfig.all_off().variant() == "vtext-fspaper-nosnap-add1-k0"
     with pytest.raises(ValueError):

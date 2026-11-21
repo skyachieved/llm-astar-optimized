@@ -1,4 +1,4 @@
-"""Failure cases and cost of the LLM runs in one outputs directory (agent.md step 7), for the report.
+"""Failure cases and cost of the LLM runs in one outputs directory, for the report.
 
   python -m llmastar.analysis --dir outputs/gpt/gpt-4o-mini [--reference wastar-w2] [--baseline llmastar_standard]
 
