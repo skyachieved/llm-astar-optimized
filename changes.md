@@ -69,14 +69,24 @@ implementation map lists `pilot.py`; section 11 records the pilot's choice (rela
 
 `/assignment_guidelines/` (course files, local only) and `/outputs/maps/` (results of `run_maps.sh`).
 
-## 7. Report (report.pdf of 2026-11-21 15:17; the source is in Overleaf)
+## 7. Report (report.pdf of 2026-11-21 15:36, still 5 pages; the source is in Overleaf)
 
-- Figure 2 is now `outputs/figures/fig8_models_report.png`, the picture the README's command makes (four models,
+- **Table 1** has the paper's format: A\*, Dynamic WA\*, LLM-only and LLM-A\* rows for Llama-3-8B and GPT-4o mini,
+  with Valid columns and the paper's values next to ours. The Paper header says "(GPT rows: GPT-3.5†)", and the note
+  explains that we use GPT-4o mini, the course's model, where the paper used GPT-3.5. The abstract says "We reproduce
+  Table 1 of LLM-A\*" (was "the LLM-A\* rows of Table 1").
+- **Cost:** a new Section 5.5 (cost-efficiency analysis, one of the course's additional-credit items) and a $/1k
+  column in Table 2; Section 5.4 is now "Harder maps and ablations".
+- **Figure 2** is `outputs/figures/fig8_models_report.png`, the picture the README's command makes (four models,
   larger text, legend "No waypoints (weighted A\*, w = 2)"); its caption says "Claude, run on the benchmark only, is
   in Table 2."
-- The abstract links the repository: "All code is available at https://github.com/skyachieved/llm-astar-optimized."
-- Table 1: the Paper header says "(GPT rows: GPT-3.5†)", and the note explains that we use GPT-4o mini, the course's
-  model, where the paper used GPT-3.5.
+- **Abstract:** "with the three GPT models, Quorum-A\*'s gain is close to what dropping every waypoint gives" (was
+  "with those four": with Qwen, dropping every waypoint saves 9.8% and Quorum-A\* 6.6%), and a link to this
+  repository: "All code is available at https://github.com/skyachieved/llm-astar-optimized."
+- **Reproducibility paragraph:** "Without an API key, python -m llmastar.report and python -m llmastar.ci_stats
+  rebuild our tables, CIs and SDs (outputs/report/) from the committed results; Table 1's LLM-only rows and Table 3
+  are in each run's summary.md and analysis.md. The README lists the commands for every rerun except the pilot."
+  (was "Two commands rebuild every table, CI and SD … for every rerun", which those two commands do not do).
 
 ## How it was checked
 
@@ -86,9 +96,10 @@ implementation map lists `pilot.py`; section 11 records the pilot's choice (rela
   A\*, Dynamic WA\* and weighted A\* are identical query by query to the committed results; Quorum-A\*'s 150 view
   calls all answered; the all-off run equals LLM-A\* on 49 of 50 queries (the other one was an LLM-A\* call that timed
   out at 60 s on the local GPU, not a code issue); `run_maps.sh` runs end to end.
-- **Later commits** change text only: every changed Python file parses, both edited shell scripts pass `bash -n`, and
-  the changed `tables.md` line is exactly the sentence `report.py` now writes.
-- **Report:** every number checked against the committed outputs (`tables.md`, `ci_tables.md`, `summary.md`,
-  `analysis.md`, `outputs/pilot/`) and against the paper's Table 1, GPT-3.5 values included. All match.
+- **After the last code edits** (branch at `43e7b6f`, conda env with Python 3.11): `pytest -q` passes (147 tests),
+  and `report` and `ci_stats` rebuild `tables.md` and `ci_tables.md` identical to the committed files (`git status`
+  clean). Every experiment script passes `bash -n`.
+- **Report** (15:36 version): every number checked against the committed outputs (`tables.md`, `ci_tables.md`,
+  `summary.md`, `analysis.md`, `outputs/pilot/`) and against the paper's Table 1, GPT-3.5 values included. All match.
 - **Leaks:** no API key in a tracked file (only the fake `sk-secret` in `tests/test_client.py`); with agent.md gone,
   none of our personal data in the tree (`setup.py` keeps the original author's contact, as in the original code).
