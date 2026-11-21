@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# Generalization to a second, open model: Qwen2.5-VL-7B-Instruct served by vLLM (agent.md step 6, "second model").
+# Generalization to a second, open model: Qwen2.5-VL-7B-Instruct served by vLLM on your own GPUs.
 # Defaults were fixed on gpt-4o-mini's pilot and are not changed here.
 #
-#   1. In one tmux window, serve the model (GPUs that are free, e.g. 6,7; stop it with Ctrl+c when done):
-#        source /raid/slpr/ymkwon/envs/vllm/bin/activate
-#        CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=6,7 vllm serve /raid/slpr/ymkwon/models/Qwen2.5-VL-7B-Instruct \
+#   1. In one terminal, serve the model (the vllm env and the download: REPRODUCTION.md#setup; stop it with Ctrl+c
+#      when done). Our runs used two 16 GB V100s in fp16:
+#        conda activate vllm
+#        CUDA_VISIBLE_DEVICES=0,1 vllm serve ~/models/Qwen2.5-VL-7B-Instruct \
 #          --served-model-name qwen2.5-vl-7b-instruct --host 127.0.0.1 --port 8012 --dtype float16 \
 #          --tensor-parallel-size 2 --max-model-len 16384 --gpu-memory-utilization 0.90 --max-num-seqs 32 \
 #          --enforce-eager --limit-mm-per-prompt '{"image": 1}' --generation-config vllm --seed 0
-#   2. In another window (repository folder, .venv), with a dummy key (never the OpenAI key):
+#   2. In another terminal (repository folder, conda env quorumastar), with a dummy key (never the OpenAI key):
 #        OPENAI_API_KEY=dummy bash experiments/qwen.sh check     # 10 queries: answers parse? (fp16 sanity check)
 #        OPENAI_API_KEY=dummy bash experiments/qwen.sh all 2>&1 | tee experiments_qwen.log   # pilot, main, hard
 #      `pilot` alone (about 15 min) is the image-view / judge check; `main` and `hard` the text-only comparison.

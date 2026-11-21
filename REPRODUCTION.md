@@ -5,13 +5,46 @@ using Llama-3-8B-Instruct in bf16 served locally by vLLM on one RTX A5000 (24 GB
 
 ## Setup
 
-The commands to install everything, start the model server and run every experiment are in
-[README.md](README.md#setup). Our run used:
+These runs need an NVIDIA GPU, which the course environment does not have. Their numbers can be checked without
+one: `python -m llmastar.report` and `python -m llmastar.ci_stats` rebuild them from the committed per-query
+results. vLLM serves the model in its own conda env (`vllm`); the experiments run in the `quorumastar` env of the
+README.
+
+**Table 1 with Llama-3-8B-Instruct.** The commands (the `vllm` env, the model download, the server and
+`python -m llmastar.table1`) are in [README.md, section 5](README.md#5-runs-that-need-a-gpu). The LLM calls took
+about 8 minutes on one RTX A5000. After `table1`, in the same terminal, these give the Fig. 3 data and the figures:
+
+```bash
+OPENAI_API_KEY=dummy python -m llmastar.scale --jobs 8
+python -m llmastar.figures
+```
+
+Results go to `outputs/llama-3-8b-instruct/` and replace the committed ones; the expected numbers are under
+[Results](#results).
+
+**Qwen2.5-VL-7B-Instruct** (the report's open model in its model comparison). In the `vllm` env of README section 5,
+we served it in fp16 on two 16 GB V100s (download about 17 GB):
+
+```bash
+conda activate vllm
+hf download Qwen/Qwen2.5-VL-7B-Instruct --local-dir ~/models/Qwen2.5-VL-7B-Instruct
+CUDA_VISIBLE_DEVICES=0,1 vllm serve ~/models/Qwen2.5-VL-7B-Instruct \
+  --served-model-name qwen2.5-vl-7b-instruct --host 127.0.0.1 --port 8012 --dtype float16 \
+  --tensor-parallel-size 2 --max-model-len 16384 --gpu-memory-utilization 0.90 --max-num-seqs 32 \
+  --enforce-eager --limit-mm-per-prompt '{"image": 1}' --generation-config vllm --seed 0
+```
+
+Then, in a second terminal, `conda activate quorumastar` and `OPENAI_API_KEY=dummy bash experiments/qwen.sh main`
+(`all` adds the pilot and the harder maps). Qwen runs use max_tokens 512, so their run names end in `-max512`.
+On one GPU with at least 24 GB, `CUDA_VISIBLE_DEVICES=0` without `--tensor-parallel-size 2` should work (not
+tested). Expected: report Table 2.
+
+Our Table 1 run used:
 
 | Env | Python | Packages |
 |---|---|---|
 | `vllm` | 3.11 | vLLM 0.11.0, torch 2.8.0+cu128, transformers 4.57.6 (NVIDIA driver 580). vLLM 0.11.0 does not cap transformers, and with transformers 5 it dies at startup (`TokenizersBackend has no attribute all_special_tokens_extended`), so the install pins `transformers<5`. |
-| `llmastar` | 3.11 | `pip install -r requirements.txt` (no torch or vLLM) |
+| `quorumastar` | 3.11 | `pip install -r requirements.txt` (no torch or vLLM) |
 
 The server ran on one RTX A5000 (24 GB) in bf16, with an 8,192-token context and 90% of GPU memory (about 5 GiB of KV
 cache, prefix caching on). It was bound to 127.0.0.1, with `--generation-config vllm` and seed 0.
