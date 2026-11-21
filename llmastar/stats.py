@@ -1,4 +1,4 @@
-"""Paired tests on per-query operations (agent.md step 7): is a run's difference from another run more than noise?
+"""Paired tests on per-query operations: is a run's difference from another run more than noise?
 
 Both runs answer the same queries, so each query gives one pair (run A, run B). Two tests, both two-sided:
   - Wilcoxon signed-rank on the differences A - B (zero differences dropped, tied ranks averaged; normal approximation

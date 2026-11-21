@@ -1,4 +1,4 @@
-"""Step 2d part 1: the deterministic Quorum-A* stages (no LLM). The worked example is agent.md's teaching example."""
+"""The deterministic Quorum-A* stages (no LLM), checked on a worked example with invented cells."""
 import pytest
 
 from llmastar.benchmark import load_queries
@@ -8,7 +8,7 @@ from llmastar.quorumastar.geometry import collides, corner_nodes, passes_filter
 from llmastar.quorumastar.pruning import majority_remove
 from llmastar.quorumastar.voting import majority_add
 
-# The worked example in agent.md: cells and an invented map where A->B and B->G cross a wall.
+# The worked example: cells and an invented map where A->B and B->G cross a wall.
 A, B, C, D = (10, 12), (25, 20), (40, 8), (5, 25)
 EXAMPLE = {"start": [5, 10], "goal": [45, 12], "range_x": [0, 51], "range_y": [0, 31],
            "horizontal_barriers": [[16, 15, 40]], "vertical_barriers": []}

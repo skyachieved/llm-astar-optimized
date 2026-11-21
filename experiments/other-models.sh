@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generalization to other OpenAI models with the defaults fixed on gpt-4o-mini's pilot (agent.md step 6, "second model").
+# Generalization to other OpenAI models with the defaults fixed on gpt-4o-mini's pilot.
 # Non-reasoning chat models only: reasoning models reject temperature 0, so LLM-A* could not run under the same settings.
 #
 #   read -rsp "OpenAI key: " OPENAI_API_KEY; echo; export OPENAI_API_KEY

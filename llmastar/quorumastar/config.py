@@ -20,7 +20,7 @@ class QuorumConfig:
     snap_corner_radius: float = 3.0
     add_quorum: int = 2
     remove_quorum: int = 2
-    vision: bool = False  # off since the pilot: no gain for 5.7x the cost (agent.md Decisions 2026-11-04, Q12)
+    vision: bool = False  # off since the pilot: no gain for 5.7x the cost (METHOD.md 11)
     stall_k: float = 2.0
     stall_min: int = 20
     prompt: str = "standard"  # used by --fewshot paper (the text view then sends LLM-A*'s exact messages)

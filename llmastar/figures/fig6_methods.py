@@ -1,5 +1,5 @@
 """A*, LLM-A* and Quorum-A* side by side: the search on one query (top) and the averages over the benchmark
-(bottom, with weighted A* w = 2 as the no-LLM reference that agent.md requires next to every LLM result).
+(bottom, with weighted A* w = 2 as the no-LLM reference next to every LLM result).
 
   python -m llmastar.figures.fig6_methods [--model qwen2.5-vl-7b-instruct] [--query 1:0]
       [--llm-run llmastar_standard] [--quorum-run quorumastar] [--wastar-run wastar-w2] [--out outputs]

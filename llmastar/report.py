@@ -1,4 +1,4 @@
-"""The report's tables, from committed outputs only (agent.md step 7): every number here is read from a CSV or an
+"""The report's tables, from committed outputs only: every number here is read from a CSV or an
 analysis.md under outputs/, never typed in or estimated.
 
   python -m llmastar.report [--out outputs/report]
@@ -265,7 +265,7 @@ def build(out=OUT):
         *ablation_table(out / "gpt_ablation300" / "gpt-4o-mini", ABLATIONS_300),
         "",
         "These are evaluation queries: they describe the method and were not used to choose the defaults, which came"
-        " from the pilot below (agent.md Decisions).",
+        " from the pilot below (METHOD.md 11).",
         "",
         "## 5. Pilot (50 self-generated maps; where the defaults came from)",
         "",

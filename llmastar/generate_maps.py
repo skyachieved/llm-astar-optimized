@@ -1,4 +1,4 @@
-"""Harder generated maps for the generalization check (agent.md step 6). Never used to choose a default.
+"""Harder generated maps for the generalization check. Never used to choose a default.
 
   python -m llmastar.generate_maps --kind dense  --size 100 --seed 1 --out dataset/generated/dense.json
   python -m llmastar.generate_maps --kind large  --size 100 --seed 1 --out dataset/generated/large.json
