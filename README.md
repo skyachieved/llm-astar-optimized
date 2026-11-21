@@ -94,7 +94,8 @@ python -m llmastar.figures.fig8_models --report  # report Figure 2 (outputs/figu
 ```
 
 Expected numbers: report Tables 2–3, Figure 2 and Sections 5.4–5.5. `bash experiments/gpt-4o-mini.sh all` runs every
-GPT-4o mini command of sections 2 and 4 in one go. Claude Opus 5.5 needs an Anthropic key (`ANTHROPIC_API_KEY`,
+GPT-4o mini command of sections 2 and 4 in one go (all our GPT-4o mini runs together, pilot included, cost about $21
+and took about 3.5 hours). Claude Opus 5.5 needs an Anthropic key (`ANTHROPIC_API_KEY`,
 `bash experiments/claude.sh main`).
 
 ## 5. Runs that need a GPU
